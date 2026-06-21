@@ -50,15 +50,19 @@ Extensions grow in capability in stages. Each rung is independently shippable.
    Same-origin only (`/extensions/` or `/static/`).
 2. **Settings UI** *in progress* — a Settings → Extensions surface: read-only
    listing first, then enable/disable, then install-from-GUI.
-3. **Sidecar metadata** *foundation merged (descriptive)* — an extension can
+3. **Sidecar metadata + direct loopback** *foundation merged (descriptive metadata); direct loopback shipped* — an extension can
    *declare* a local helper process (`sidecar: { type, origin, health_path }`) so
-   WebUI can show the dependency and, later, report coarse health.
-4. **Backend routes / proxy** *planned* — richer extensions need backend behavior.
-   The planned first step is a **declarative, per-extension, opt-in same-origin
-   proxy to a declared loopback sidecar** (so an extension's frontend can call its
-   own local backend without CORS, while the backend stays a localhost process the
-   user controls). In-process server route handlers are a later, separately-gated
-   step.
+   WebUI can show the dependency and, later, report coarse health. **Today**, an
+   extension's JS can talk to a trusted loopback sidecar **directly** — the core
+   CSP `connect-src` already allows `http://127.0.0.1:*` / `localhost` / `ws://`
+   loopback — so direct browser → sidecar is the *current* sidecar-class pattern.
+4. **Backend routes / same-origin proxy** *planned / future* — a **future, opt-in,
+   per-extension same-origin proxy** (`/extensions/<id>/sidecar/*` → the declared
+   loopback origin). This is *not* required for sidecar extensions to work today
+   (see #3 — direct loopback already works); it's future core work for cases the
+   direct path can't cover (e.g. the sidecar's own CORS, hiding the port, uniform
+   same-origin auth). Repo entries should **not** depend on it yet. In-process
+   server route handlers are a later, separately-gated step beyond that.
 
 ## The registry & install experience (target)
 
