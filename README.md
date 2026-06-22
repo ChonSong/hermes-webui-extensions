@@ -22,6 +22,9 @@ main Hermes WebUI repository.
   same-origin extension assets.
 - Local sidecar integrations, such as native desktop helpers, when their trust
   model and installation steps are explicit.
+- Native-host resource bundles that belong to a sidecar extension, as long as
+  the entry makes clear that those assets are for the native host and are not
+  WebUI core UI.
 - Examples that help extension authors follow the current WebUI contract.
 
 ## What Does Not Belong Here

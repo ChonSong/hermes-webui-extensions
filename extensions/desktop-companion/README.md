@@ -20,12 +20,18 @@ Hermes WebUI page
   -> manifest-bundled extension assets
   -> /extensions/assets/companion-adapter.js
   -> http://127.0.0.1:17787 loopback sidecar
-  -> optional native desktop pet host
+  -> native desktop pet host
 ```
 
 The extension can run in WebUI without the sidecar. In that mode it stays
 invisible and quietly fails closed. When the sidecar is running, the extension
 posts snapshots to `POST /api/webui/snapshot` so the desktop pet can react.
+The sidecar and native desktop pet host are required for the user-visible
+desktop pet experience; the WebUI adapter alone is only the browser bridge.
+
+The bundled `assets/pets/` resources are consumed by the native desktop pet
+host through the sidecar/source project. They are not a browser overlay and do
+not mean Hermes WebUI core renders a pet inside the page.
 
 ## Capabilities
 
@@ -59,8 +65,8 @@ npm install
 npm run dev
 ```
 
-Start the native desktop pet host from the same source repo when testing the
-desktop surface:
+Start the native desktop pet host from the same source repo to show and use the
+desktop pet surface:
 
 ```bash
 npm install --prefix desktop-pet
@@ -90,6 +96,9 @@ browser origin and can use the logged-in browser session.
 Current disclosed behavior:
 
 - reads the authenticated WebUI sessions API via `/api/sessions`
+- reads guarded Hermes WebUI browser globals for live session state while no
+  formal extension runtime API exists (`S`, `_allSessions`, `INFLIGHT`,
+  `_currentPanel`, `switchPanel`, `_saveComposerDraftNow`, and `send`)
 - reads existing WebUI localStorage keys for viewed/unread session state
 - talks to a loopback sidecar at `http://127.0.0.1:17787`
 - sends the local sidecar page URL/title, companion state, and current session
@@ -99,6 +108,11 @@ Current disclosed behavior:
 - serves bundled pet assets
 - does not need external network access
 - does not need arbitrary filesystem access
+
+The adapter endpoint can be overridden with trusted local configuration via
+`window.HERMES_DESKTOP_COMPANION_CONFIG` before the adapter loads. Do not point
+that override at an untrusted remote origin, because the adapter sends
+authenticated WebUI attention state and executes queued desktop-pet actions.
 
 ## Sidecar Contract
 
@@ -137,6 +151,8 @@ Required WebUI surface:
 - same-origin extension asset serving under `/extensions/`
 - browser access to authenticated WebUI session APIs
 - loopback CSP allowance for `http://127.0.0.1:17787`
+- guarded access to the current WebUI browser globals listed in the trust
+  section until WebUI core exposes an equivalent extension runtime API
 
 Current lifecycle declaration:
 
