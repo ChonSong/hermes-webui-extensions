@@ -1,0 +1,18 @@
+{
+  "extensions": [
+    {
+      "id": "desktop-companion",
+      "name": "Hermes WebUI Desktop Companion",
+      "description": "Trusted local desktop companion adapter for Hermes WebUI.",
+      "scripts": [
+        "assets/companion-adapter.js"
+      ],
+      "stylesheets": [],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17787",
+        "health_path": "/health"
+      }
+    }
+  ]
+}

@@ -11,6 +11,7 @@ Each extension entry should include:
 ```text
 extensions/<extension-id>/
   README.md
+  extension.json
   manifest.json
   assets/
 ```
@@ -25,6 +26,10 @@ extensions/<extension-id>/
 ```
 
 ## Manifest Shape
+
+`extension.json` is the author-facing metadata source for registry, gallery,
+trust, capability, and lifecycle information. `manifest.json` is the current
+runtime loader manifest consumed by Hermes WebUI.
 
 The current WebUI loader reads a manifest bundle with an `extensions` array.
 Extension entries should keep paths local to the extension directory.

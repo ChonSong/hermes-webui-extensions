@@ -52,6 +52,7 @@ Extension PRs should disclose:
 extensions/
   <extension-id>/
     README.md
+    extension.json
     manifest.json
     assets/
     screenshots/
@@ -83,8 +84,11 @@ Extension entries should document:
 The long-term goal is for this repository to validate existing extension
 entries as the main WebUI extension contract evolves.
 
-## First Phase Scope
+## Current Entries
 
-This first phase defines repository shape and contribution expectations only.
-It does not add an extension registry UI, install flow, backend proxy, or any
-Desktop Companion assets.
+- `extensions/desktop-companion/`: trusted local Desktop Companion entry and
+  first sidecar-class extension candidate.
+
+This repository does not yet add an extension registry UI, install flow, or
+backend proxy. Entries should continue to document their current manual install
+and lifecycle behavior explicitly.
