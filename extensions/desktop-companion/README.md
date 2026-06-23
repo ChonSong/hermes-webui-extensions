@@ -102,6 +102,8 @@ Current disclosed behavior:
 
 - reads the authenticated WebUI sessions API via `/api/sessions`
 - reads authenticated session detail via `/api/session`
+- reads authenticated pending approval and clarification details via
+  `/api/approval/pending` and `/api/clarify/pending`
 - writes authenticated WebUI APIs for desktop-pet commands:
   `/api/session/draft`, `/api/approval/respond`, and `/api/clarify/respond`
 - reads guarded Hermes WebUI browser globals for live session state while no
@@ -130,6 +132,12 @@ authenticated WebUI attention state and executes queued desktop-pet actions.
 The autosend path is intentionally limited to commands delivered by the local
 loopback sidecar the user starts. It is not exposed to remote origins or
 third-party script loaders by this extension entry.
+
+Desktop Companion treats user-acting commands as explicit local permissions.
+Draft injection and navigation are available by default. Direct autosend and
+inline approval/clarify responses are default-off in the source sidecar/native
+host and require user opt-in from the desktop pet confirmation card or its
+right-click `Permission control` menu.
 
 ## Sidecar Contract
 
@@ -169,6 +177,7 @@ Required WebUI surface:
 - browser access to authenticated WebUI session APIs
 - authenticated WebUI write APIs for session drafts, approval responses, and
   clarification responses
+- authenticated WebUI read APIs for pending approval and clarification context
 - browser navigation/session-loading hooks for desktop-pet jump and quick-reply
   flows
 - loopback CSP allowance for `http://127.0.0.1:17787`

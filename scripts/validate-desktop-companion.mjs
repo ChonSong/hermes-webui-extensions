@@ -29,7 +29,11 @@ assert.deepEqual(entry.capabilities, ['manifest-bundle', 'loopback-sidecar']);
 assert.ok(!entry.capabilities.includes('sidecar-proxy'));
 assert.deepEqual(entry.assets.stylesheets, []);
 assert.deepEqual(runtime.stylesheets, []);
-assertIncludesAll(entry.permissions.webui_api.read, ['sessions', 'session'], 'webui_api.read');
+assertIncludesAll(
+  entry.permissions.webui_api.read,
+  ['sessions', 'session', 'approval/pending', 'clarify/pending'],
+  'webui_api.read'
+);
 assertIncludesAll(
   entry.permissions.webui_api.write,
   ['session/draft', 'approval/respond', 'clarify/respond'],
@@ -41,8 +45,10 @@ assert.deepEqual(entry.permissions.sidecar_commands, {
   can_switch_sessions: true,
   can_write_drafts: true,
   can_autosend: true,
+  autosend_default: false,
   can_respond_approval: true,
-  can_respond_clarify: true
+  can_respond_clarify: true,
+  approval_clarify_response_default: false
 });
 assert.deepEqual(entry.permissions.dom, {
   owned: false,
@@ -70,6 +76,8 @@ assert.equal(check.status, 0, check.stderr || check.stdout);
 const adapter = readFileSync(adapterPath, 'utf8');
 assert.match(adapter, /fetch\('\/api\/sessions'/);
 assert.match(adapter, /\/api\/session\?/);
+assert.match(adapter, /\/api\/approval\/pending/);
+assert.match(adapter, /\/api\/clarify\/pending/);
 assert.match(adapter, /\/api\/session\/draft/);
 assert.match(adapter, /\/api\/approval\/respond/);
 assert.match(adapter, /\/api\/clarify\/respond/);

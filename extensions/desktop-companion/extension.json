@@ -31,7 +31,9 @@
     "webui_api": {
       "read": [
         "sessions",
-        "session"
+        "session",
+        "approval/pending",
+        "clarify/pending"
       ],
       "write": [
         "session/draft",
@@ -45,8 +47,10 @@
       "can_switch_sessions": true,
       "can_write_drafts": true,
       "can_autosend": true,
+      "autosend_default": false,
       "can_respond_approval": true,
-      "can_respond_clarify": true
+      "can_respond_clarify": true,
+      "approval_clarify_response_default": false
     },
     "dom": {
       "owned": false,
