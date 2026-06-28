@@ -37,3 +37,5 @@ need it and maintainers agree on the shared contract.
 - `skin-pack`: popular editor-inspired color themes (Dracula, Gruvbox, One Dark,
   Tokyo Night, Rosé Pine, Solarized Dark) that register into the native
   Appearance picker via the theme-registration API.
+- `voicevox-tts`: use a local VOICEVOX server as a TTS engine (registers into
+  Settings → TTS Engine via the core TTS-engine registration hook).
