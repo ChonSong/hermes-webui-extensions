@@ -37,3 +37,6 @@ need it and maintainers agree on the shared contract.
 - `skin-pack`: popular editor-inspired color themes (Dracula, Gruvbox, One Dark,
   Tokyo Night, Rosé Pine, Solarized Dark) that register into the native
   Appearance picker via the theme-registration API.
+- `external-app-tab`: pin a self-hosted web app (Grafana, Vaultwarden, a
+  dashboard) as a tab inside the WebUI via an iframe (needs the core
+  `HERMES_WEBUI_CSP_FRAME_EXTRA` knob for external origins).
