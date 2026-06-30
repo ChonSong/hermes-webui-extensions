@@ -10,7 +10,8 @@ and set the device down, you get a physical "it's done" cue.
   `navigator.vibrate()` buzz.
 - Opt-in preference stored locally (`hermes-ext-haptics-enabled`); on by default
   where vibration is supported.
-- Ignores sub-600ms blips so only real turns buzz.
+- Ignores sub-100ms flickers; the real "a turn happened" gate is observing a
+  genuine busy action (stop/steer/interrupt), so only real turns buzz.
 
 ## Platform support (important)
 

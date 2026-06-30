@@ -60,7 +60,13 @@
       if (!sawBusy) { sawBusy = true; busyStartedAt = Date.now(); }
       return;
     }
-    // Not a busy action. If we had seen a busy action this turn, the turn is done.
+    // 'queue' is NOT completion: core sets #btnSend.dataset.action to 'queue' while
+    // an assistant turn is STILL active and the user has typed/queued a follow-up
+    // (static/ui.js getComposerPrimaryAction). Treat it as a holding state so a
+    // mid-turn stop->queue transition does not fire a premature buzz (and then a
+    // second one on the real completion). (Codex gate, PR #22.)
+    if (sawBusy && action === 'queue') return;
+    // Not a busy/holding action. If we had seen a busy action this turn, it's done.
     if (sawBusy) {
       const ranFor = Date.now() - busyStartedAt;
       sawBusy = false;
