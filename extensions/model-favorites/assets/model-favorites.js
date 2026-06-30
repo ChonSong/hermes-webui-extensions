@@ -58,9 +58,19 @@
   function rowProvider(row) {
     const provEl = row.querySelector(':scope .model-opt-provider');
     if (provEl && provEl.textContent.trim()) return provEl.textContent.trim();
-    const grp = row.closest('.model-group-body[data-group]');
-    if (grp && grp.dataset && grp.dataset.group && grp.dataset.group !== '__ungrouped__') {
-      return grp.dataset.group;
+    // Walk ancestors for the nearest PROVIDER wrapper, skipping nested vendor
+    // subgroups: core renders OpenRouter/Nous subgroups as `.model-group-body.sub`
+    // with data-group="<provider>::<vendor>", which is NOT a real provider id.
+    // (Codex gate round 3, PR #23.)
+    let el = row.parentElement;
+    while (el) {
+      if (el.classList && el.classList.contains('model-group-body') &&
+          !el.classList.contains('sub') && el.dataset && el.dataset.group) {
+        const g = el.dataset.group;
+        if (g && g !== '__ungrouped__') return g;
+        return '';
+      }
+      el = el.parentElement;
     }
     return '';
   }
