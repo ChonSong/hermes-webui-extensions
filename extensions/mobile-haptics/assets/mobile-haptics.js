@@ -17,7 +17,7 @@
   if (window.__hermesMobileHapticsLoaded) return;
   window.__hermesMobileHapticsLoaded = true;
 
-  const PREF_KEY = 'hermes-ext-haptics-enabled';      // '1' (default on) | '0'
+  const PREF_KEY = 'hermes-ext-haptics-enabled';      // legacy localStorage key (pre-settings_schema)
   const COMPLETE_PATTERN = [18];                       // short single buzz on turn-complete
   const BUSY_ACTIONS = new Set(['stop', 'steer', 'interrupt']);
   const MIN_BUSY_MS = 100;                            // tiny floor: filters pure flicker; the sawBusy flag is the real "a turn happened" gate
@@ -30,11 +30,37 @@
     return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
   }
 
+  // The 'enabled' preference now lives in the sanctioned extension-settings store
+  // (settings_schema key `enabled`), so it renders as a native toggle under
+  // Settings → Extensions → Mobile Haptics. Read through HermesExtensionSettings
+  // when core supports it; fall back to the legacy localStorage key on older core
+  // (so the toggle still works if this loads against a build without the settings
+  // system). Default ON either way. (Retrofit — issue #34.)
+  function extSettings() {
+    try {
+      var api = window.HermesExtensionSettings;
+      if (api && typeof api.settingsForExtension === 'function') {
+        var s = api.settingsForExtension('mobile-haptics');
+        if (s && s.supported) return s;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   function enabled() {
+    var s = extSettings();
+    if (s) { var v = s.get('enabled'); return v === undefined ? true : v !== false; }
+    // Legacy fallback: localStorage key, default ON.
     try {
       const v = localStorage.getItem(PREF_KEY);
-      return v === null ? true : v === '1';   // default ON when supported
+      return v === null ? true : v === '1';
     } catch (_) { return true; }
+  }
+
+  function setEnabled(on) {
+    var s = extSettings();
+    if (s) { try { s.set('enabled', !!on); return; } catch (_) {} }
+    try { localStorage.setItem(PREF_KEY, on ? '1' : '0'); } catch (_) {}
   }
 
   function sendBtnAction() {
@@ -95,7 +121,7 @@
         version: '0.1.0',
         supported: hapticsSupported(),
         isEnabled: enabled,
-        setEnabled(on) { try { localStorage.setItem(PREF_KEY, on ? '1' : '0'); } catch (_) {} },
+        setEnabled: setEnabled,
         test() { if (hapticsSupported()) { try { navigator.vibrate(COMPLETE_PATTERN); return true; } catch (_) {} } return false; }
       };
       if (!hapticsSupported()) {

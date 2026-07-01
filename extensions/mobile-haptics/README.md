@@ -8,7 +8,7 @@ and set the device down, you get a physical "it's done" cue.
 
 - Watches for the end of an assistant turn and triggers a short
   `navigator.vibrate()` buzz.
-- Opt-in preference stored locally (`hermes-ext-haptics-enabled`); on by default
+- Opt-in preference, on by default; managed via the native Settings → Extensions toggle (sanctioned extension-settings store, legacy `hermes-ext-haptics-enabled` localStorage fallback on older core)
   where vibration is supported.
 - Ignores sub-100ms flickers; the real "a turn happened" gate is observing a
   genuine busy action (stop/steer/interrupt), so only real turns buzz.
@@ -42,7 +42,7 @@ Hermes WebUI page
   -> manifest-bundled extension assets
   -> /extensions/assets/mobile-haptics.js
   -> MutationObserver on #btnSend (busy -> idle) -> navigator.vibrate()
-  -> localStorage: hermes-ext-haptics-enabled
+  -> setting `enabled` via window.HermesExtensionSettings (Settings → Extensions toggle)
 ```
 
 This extension is `static-ui` / manifest-bundle only. It does not add backend
@@ -65,11 +65,18 @@ short buzz when the reply completes.
 
 ## Controls
 
-A small JS control surface is exposed on `window.HermesMobileHapticsExtension`:
+The **on/off toggle renders natively in Settings → Extensions → Mobile Haptics**
+("Vibrate when a turn finishes"), via the sanctioned extension-settings system
+(`settings_schema` + `permissions.storage.owned: true`). Toggling it there persists
+through `window.HermesExtensionSettings` — no separate panel.
+
+A small JS control surface is also exposed on `window.HermesMobileHapticsExtension`:
 
 - `.supported` — whether `navigator.vibrate` exists on this device
-- `.isEnabled()` — current opt-in state
-- `.setEnabled(true|false)` — toggle and persist
+- `.isEnabled()` — current opt-in state (reads the settings store; falls back to the
+  legacy `hermes-ext-haptics-enabled` localStorage key on older core without the
+  settings system)
+- `.setEnabled(true|false)` — toggle and persist (settings store, legacy fallback)
 - `.test()` — fire a test buzz (returns false if unsupported)
 
 ## Disable And Uninstall
@@ -87,8 +94,9 @@ This is trusted local code. Current disclosed behavior:
   supported)
 - observes the `#btnSend` button's `class` / `data-action` via a
   `MutationObserver` (read-only)
-- reads and writes `localStorage` under the single key
-  `hermes-ext-haptics-enabled`
+- reads/writes the `enabled` setting through the sanctioned `window.HermesExtensionSettings`
+  store (`permissions.storage.owned: true`); on older core without that system it
+  falls back to the single localStorage key `hermes-ext-haptics-enabled`
 - creates NO DOM
 - does not call WebUI HTTP APIs
 - does not access cookies

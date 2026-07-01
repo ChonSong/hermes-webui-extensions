@@ -31,9 +31,7 @@
       "mutates_core_views": false
     },
     "storage": {
-      "owned": [
-        "hermes-ext-haptics-enabled"
-      ],
+      "owned": true,
       "shared_webui_keys": []
     },
     "loopback_sidecar": false,
@@ -44,5 +42,13 @@
     },
     "network_external": false,
     "device_vibration": true
-  }
+  },
+  "settings_schema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Vibrate when a turn finishes",
+      "default": true
+    }
+  ]
 }
