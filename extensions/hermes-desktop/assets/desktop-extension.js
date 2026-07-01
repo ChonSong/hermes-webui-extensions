@@ -7,7 +7,7 @@
   var EXT_ID = 'hermes-desktop';
   var CFG = {
     sidecar: 'http://127.0.0.1:17887',
-    novncPort: 6080,
+    novncPort: 6901,
     pollMs: 3000,
     panelId: 'hermes-desktop-panel',
     btnId: 'hermes-desktop-btn'
