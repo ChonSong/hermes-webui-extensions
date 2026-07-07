@@ -1,0 +1,52 @@
+{
+  "id": "totp-mfa",
+  "name": "TOTP MFA",
+  "description": "Optional two-factor authentication using TOTP (Google Authenticator, Authy, Microsoft Authenticator compatible). Adds a settings panel to configure MFA — scan a QR code to set up your authenticator app, verify with a 6-digit code, then enable. Disable anytime with password confirmation. Login becomes two-step: password then TOTP code.",
+  "version": "0.1.0",
+  "author": "hermes-webui-contrib",
+  "repository": "https://github.com/hermes-webui/hermes-webui-extensions/tree/main/extensions/totp-mfa",
+  "assets": {
+    "scripts": [
+      "assets/totp-mfa.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "/api/auth/mfa/status",
+        "/api/auth/mfa/setup"
+      ],
+      "write": [
+        "/api/auth/mfa/enable",
+        "/api/auth/mfa/disable"
+      ]
+    },
+    "webui_navigation": true,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": false,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}

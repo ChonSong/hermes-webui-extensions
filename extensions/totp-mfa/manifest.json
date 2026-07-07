@@ -1,0 +1,12 @@
+{
+  "extensions": [
+    {
+      "id": "totp-mfa",
+      "name": "TOTP MFA",
+      "description": "Optional two-factor authentication using TOTP (Google Authenticator compatible).",
+      "scripts": [
+        "assets/totp-mfa.js"
+      ]
+    }
+  ]
+}
