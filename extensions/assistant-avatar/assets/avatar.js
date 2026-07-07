@@ -224,8 +224,13 @@
   }
 
   /* ── Mouse tracking ───────────────────────────────────────────────────── */
-  let mouseX = 96;   // Normalized -1..1 relative to canvas center
-  let mouseY = 96;
+  // Normalized -1..1 relative to viewport center. MUST start at 0 (centered):
+  // render() applies ctx.translate(mouseX*floatStrength, ...), so a non-zero
+  // start (e.g. 96) shifts the whole drawing ~288px off-canvas until the first
+  // real mousemove — the avatar is invisible on page load (and forever in any
+  // idle/no-pointer context). onMouseMove() re-normalizes these to -1..1.
+  let mouseX = 0;
+  let mouseY = 0;
   let targetFloatX = 0;
   let targetFloatY = 0;
   let currentFloatX = 0;
@@ -251,6 +256,7 @@
   let ctx           = null;
   let observer      = null;
   let rafId         = null;
+  let pollTimer     = null;
   let settingsPanel = null;
 
   // Animation offset — 0 = rest position (bottom-right corner)
@@ -374,10 +380,12 @@
     if (!ctx) return;
     ctx.clearRect(0, 0, 192, 192);
 
-    // Compute float offset (subtle drift toward cursor, damped)
+    // Compute float offset (subtle drift toward cursor, damped).
+    // Honor the eye-tracking toggle: when off, target a zero (centered) offset
+    // so pupils/float stop following the cursor instead of silently no-opping.
     var floatStrength = 3; // pixels max offset
-    targetFloatX = mouseX * floatStrength;
-    targetFloatY = mouseY * floatStrength;
+    targetFloatX = mouseTrackingEnabled ? mouseX * floatStrength : 0;
+    targetFloatY = mouseTrackingEnabled ? mouseY * floatStrength : 0;
     currentFloatX += (targetFloatX - currentFloatX) * 0.08;
     currentFloatY += (targetFloatY - currentFloatY) * 0.08;
 
@@ -399,10 +407,10 @@
     function F(key, color) { var p = cache[key]; if (p) { ctx.fillStyle = color; ctx.fill(p); } }
     function S(key, color, w) { var p = cache[key]; if (p) { ctx.strokeStyle = color; ctx.lineWidth = w || 2; ctx.lineCap = 'round'; ctx.stroke(p); } }
 
-    // Compute pupil offset from mouse
+    // Compute pupil offset from mouse (frozen to center when tracking is off)
     var pupilMax = 4;
-    var px = mouseX * pupilMax;
-    var py = mouseY * pupilMax * 0.5;
+    var px = mouseTrackingEnabled ? mouseX * pupilMax : 0;
+    var py = mouseTrackingEnabled ? mouseY * pupilMax * 0.5 : 0;
 
     try {
       // Layer 1: Background / body
@@ -515,15 +523,31 @@
   }
 
   /* ── Animation loop ────────────────────────────────────────────────────── */
+  // Respect the OS "reduce motion" setting: keep the character visible and
+  // state-reactive (expression changes are informative, not decoration), but
+  // drop the continuous decorative motion (idle float drift + blink jitter).
+  var _reduceMotion = false;
+  try {
+    var _rmq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (_rmq) {
+      _reduceMotion = _rmq.matches;
+      var _onRM = function(e) { _reduceMotion = e.matches; };
+      if (_rmq.addEventListener) _rmq.addEventListener('change', _onRM);
+      else if (_rmq.addListener) _rmq.addListener(_onRM);
+    }
+  } catch (_) {}
+
   function animate(timestamp) {
     time = timestamp;
     if (tween < 1) tween = Math.min(1, tween + TWEEN_SPEED);
 
-    blinkTimer += 16;
-    if (blinkTimer > 3000 + Math.random() * 2000) { blinkTimer = 0; blinkPhase = 0.01; }
-    if (blinkPhase > 0) { blinkPhase += 0.08; if (blinkPhase >= 2) blinkPhase = 0; }
+    if (!_reduceMotion) {
+      blinkTimer += 16;
+      if (blinkTimer > 3000 + Math.random() * 2000) { blinkTimer = 0; blinkPhase = 0.01; }
+      if (blinkPhase > 0) { blinkPhase += 0.08; if (blinkPhase >= 2) blinkPhase = 0; }
+    }
 
-    if (targetExpr === 'speaking') { mouthPhase += 0.25; } else { mouthPhase = 0; }
+    if (targetExpr === 'speaking' && !_reduceMotion) { mouthPhase += 0.25; } else { mouthPhase = 0; }
 
     applyPosition();
     render();
@@ -691,7 +715,7 @@
 
     pollState();
     setExpression(lastState);
-    setInterval(pollState, 500);
+    pollTimer = setInterval(pollState, 500);
     rafId = requestAnimationFrame(animate);
 
     // Inject titlebar button
@@ -716,9 +740,10 @@
       setMouseTracking: function(enabled) { mouseTrackingEnabled = enabled; },
       destroy: function() {
         if (rafId) cancelAnimationFrame(rafId);
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         if (observer) observer.disconnect();
         if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
-        if (settingsPanel) settingsPanel.remove();
+        closeSettings();  // removes the panel AND its capture-phase pointerdown listener
         if (titlebarBtn && titlebarBtn.parentNode) titlebarBtn.parentNode.removeChild(titlebarBtn);
         document.removeEventListener('mousemove', onMouseMove);
         window.__hwxAvatarLoaded = false;

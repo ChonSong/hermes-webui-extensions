@@ -19,8 +19,8 @@
   "permissions": {
     "webui_api": { "read": [], "write": [] },
     "webui_navigation": false,
-    "dom": { "owned": true, "mutates_core_views": false },
-    "storage": { "owned": [], "shared_webui_keys": [] },
+    "dom": { "owned": true, "mutates_core_views": true },
+    "storage": { "owned": ["hwx-avatar-config", "hwx-avatar-preset"], "shared_webui_keys": [] },
     "loopback_sidecar": false,
     "native_host": false,
     "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
