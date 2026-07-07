@@ -9,6 +9,7 @@
   const RAIL_BTN_ID = 'hwxThemeCreatorRailBtn', PANEL_ID = 'hwxThemeCreatorPanel', BG_STYLE_ID = 'hwxThemeCreatorBgStyles'
   const MAX_IMAGE_DIM = 1920, IMAGE_QUALITY = 0.7, MAX_THEMES = 50, MAX_STORE_BYTES = 2 * 1024 * 1024
   const THEME_KEY_RE = /^custom-[a-z0-9_-]+$/
+  const DATA_IMAGE_RE = /^data:image\/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/
   const FIELDS = [
     { id: 'bg', label: 'Background', def: '#0d0d1a' },
     { id: 'surface', label: 'Panels / surfaces', def: '#16161f' },
@@ -32,7 +33,10 @@
   const readableOn = h => luminance(h) > .5 ? '#111111' : '#ffffff'
   const isHex = s => /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(String(s || '').trim())
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
-  const slugify = name => KEY_PREFIX + String(name || 'theme').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || KEY_PREFIX + 'theme'
+  const slugify = name => {
+    const body = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32).replace(/-+$/g, '')
+    return KEY_PREFIX + (body || 'theme')
+  }
   const hasCap = () => typeof window.registerHermesSkin === 'function'
   const sliderSection = (cls, label, min, max, unit, val) =>
     '<div class="hwx-tc-' + cls + '-section"><div class="hwx-tc-section-title" style="margin-top:14px">' + label + ' <span class="hwx-tc-muted">(' + min + '-' + max + unit + ')</span></div>'
@@ -49,7 +53,10 @@
   function validTheme(t) {
     if (!t || typeof t !== 'object') return null; const key = String(t.key || ''); if (!THEME_KEY_RE.test(key)) return null; if (!t.base || typeof t.base !== 'object') return null
     const base = {}; for (const f of FIELDS) { const v = t.base[f.id]; if (!isHex(v)) return null; base[f.id] = v }
-    base.bgImage = typeof t.base.bgImage === 'string' && t.base.bgImage.startsWith('data:image/') ? t.base.bgImage.slice(0, 500000) : null
+    // bgImage is interpolated into background-image:url("...") — validate strictly
+    // on READ (a tampered localStorage record must not break out of the CSS string
+    // or smuggle an external url()). Require a real base64 raster data-URL and cap size.
+    base.bgImage = (typeof t.base.bgImage === 'string' && DATA_IMAGE_RE.test(t.base.bgImage) && t.base.bgImage.length <= 500000) ? t.base.bgImage : null
     base.glassOpacity = typeof t.base.glassOpacity === 'number' && t.base.glassOpacity > 0 && t.base.glassOpacity <= .5 ? t.base.glassOpacity : .08
     base.blur = typeof t.base.blur === 'number' && t.base.blur >= 0 && t.base.blur <= 50 ? t.base.blur : 20
     return { key, name: String(t.name || key).slice(0, 28), base }
@@ -100,7 +107,7 @@
       if (e.base.bgImage) {
         const brgb = rgbStr(e.base.bg), sRgb = rgbStr(e.base.surface), uRgb = rgbStr(e.base.userBubble)
         const op = e.base.glassOpacity || .08, bgOp = Math.min(op * 1.5, .4), sOp = op, iOp = op * .85, cOp = op * .7
-        const blurPx = Math.max(0, Math.min(50, e.base.blur || 20))
+        const blurPx = Math.max(0, Math.min(50, Number.isFinite(e.base.blur) ? e.base.blur : 20))
         const blur = 'backdrop-filter:blur(' + blurPx + 'px)!important;-webkit-backdrop-filter:blur(' + blurPx + 'px)!important'
         rules.push(
           _rule(e.key, '', 'background-image:url("' + e.base.bgImage + '")!important;background-size:cover!important;background-position:center!important;background-repeat:no-repeat!important;background-attachment:fixed!important;'
@@ -222,7 +229,7 @@
     const host = $('.hwx-tc-editor', panel), base = editing ? editing.base : defaultBase()
     _currentBgImage = base.bgImage || null
     _currentGlassOpacity = base.glassOpacity > 0 ? base.glassOpacity : .08
-    _currentBlur = base.blur > 0 ? base.blur : 20
+    _currentBlur = Number.isFinite(base.blur) ? base.blur : 20
     const nameVal = editing ? editing.name : '', hasBg = !!_currentBgImage
     let rows = ''
     FIELDS.forEach(f => { const v = base[f.id] || f.def; rows += '<label class="hwx-tc-row"><span>' + esc(f.label) + '</span><span class="hwx-tc-swatchwrap"><input type="color" class="hwx-tc-color hwx-tc-color-' + f.id + '" value="' + esc(v) + '"><input type="text" class="hwx-tc-hex hwx-tc-hex-' + f.id + '" value="' + esc(v) + '" maxlength="7"></span></label>' })
@@ -272,7 +279,6 @@
 
   // ── save / manage ──
   function saveCurrent() {
-    try { localStorage.setItem('hwx-tc-debug', JSON.stringify({called: Date.now(), editing: !!editing})) } catch(_) {}
     const panel = document.getElementById(PANEL_ID)
     const name = ($('.hwx-tc-name', panel).value || '').trim()
     if (!name) { showErr('Give your theme a name.'); return }
@@ -280,6 +286,7 @@
     for (const f of FIELDS) { if (!isHex(base[f.id])) { showErr('"' + f.label + '" is not a valid colour.'); return } }
     let themes = loadThemes()
     const key = editing ? editing.key : slugify(name), existingIdx = themes.findIndex(t => t.key === key)
+    if (!THEME_KEY_RE.test(key)) { showErr('Could not derive a valid theme id from that name \u2014 try a name with letters or numbers.'); return }
     const rec = { key, name: name.slice(0, 28), base }
     if (existingIdx >= 0) themes[existingIdx] = rec
     else { if (themes.length >= MAX_THEMES) { showErr('Theme limit reached (' + MAX_THEMES + '). Delete one before adding another.'); return }; themes.push(rec) }
