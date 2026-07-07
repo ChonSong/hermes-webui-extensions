@@ -4,10 +4,23 @@
       "id": "emotion-avatar",
       "name": "Emotion Avatar",
       "description": "Modular companion avatar with 5 built-in characters + import your own Live2D/Spine models. FAC/LLM emotion detection. Swappable renderers.",
-      "version": "0.8.0",
-      "author": "ChonSong",
-      "homepage": "https://github.com/ChonSong/hermes-webui-extensions/tree/main/extensions/emotion-avatar",
-      "repository": "https://github.com/ChonSong/hermes-webui-extensions"
+      "scripts": [
+        "assets/core/presets.js",
+        "assets/core/visemes.js",
+        "assets/core/pipeline.js",
+        "assets/core/model-store.js",
+        "assets/inputs/agent-state.js",
+        "assets/inputs/llm-tags.js",
+        "assets/inputs/fac-emotion.js",
+        "assets/renderers/canvas-2d.js",
+        "assets/renderers/live2d.js",
+        "assets/renderers/spine.js",
+        "assets/renderers/model-manager.js",
+        "assets/emotion-avatar.js"
+      ],
+      "stylesheets": [
+        "assets/emotion-avatar.css"
+      ]
     }
   ]
 }
