@@ -206,11 +206,14 @@
     var uploadRow = el.appendChild(document.createElement('div'));
     uploadRow.style.cssText = 'margin-bottom:6px';
 
+    var fid = 'ea-file-upload-' + Date.now();
     var uploadLabel = uploadRow.appendChild(document.createElement('label'));
+    uploadLabel.setAttribute('for', fid);
     uploadLabel.style.cssText = btnCss + ';display:inline-block;cursor:pointer';
     uploadLabel.textContent = '📁 Upload .moc3 / .zip';
 
     var fileInput = uploadRow.appendChild(document.createElement('input'));
+    fileInput.id = fid;
     fileInput.type = 'file';
     fileInput.accept = '.moc3,.zip,.model3.json,.skel,.json,.atlas,.vrm';
     fileInput.style.cssText = 'display:none';
