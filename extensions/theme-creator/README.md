@@ -16,8 +16,26 @@ extension system is for.
 - Adds a rail button that opens the Theme Creator panel.
 - A curated set of color inputs (background, surfaces, text, muted, accent,
   borders, your-message bubble), each with a color picker + hex field.
-- **Live preview** applies the in-progress theme to the whole app; **Stop
-  preview** reverts to your previous skin.
+- **Optional background image upload**: pick a JPEG/PNG from your device; it's
+  compressed and resized client-side (max 1920 px wide, ~70% JPEG quality),
+  stored as a base64 data URL in the theme record, and applied directly on
+  `:root` as the page background. Surface CSS variables (`--bg`, `--surface`) take
+  dynamic opacity from the **Glass opacity slider**, and `backdrop-filter: blur(...)` (configurable
+  0-50px via the **Blur intensity slider**) is applied directly to known panel
+  containers (`nav.rail`, `aside.sidebar`, `aside.rightpanel`, `div.main-view`)
+  via class selectors — covering panels whose backgrounds are hardcoded in the
+  core CSS (not using CSS variables). The result is a **glassmorphism /**
+  **frosted-glass** effect where the background image shows through all
+  surfaces — the sidebar, conversation list, chat area, and input bar —
+  with a smooth blur. Remove the image to restore solid colours.
+- **Glass opacity slider** (1-50%): adjusts the transparency of all frosted-glass
+  panel backgrounds in real time. Lower = more transparent (more image visible);
+  higher = more solid. Saved per theme, reflected in live preview.
+- **Blur intensity slider** (0-50px): adjusts the `backdrop-filter` blur on glass
+  panel surfaces. 0px = no blur (clear glass), higher values = frosted effect.
+  Saved per theme, reflected in live preview.
+- **Live preview** applies the in-progress theme (colours + image + glass opacity + blur)
+  app; **Stop preview** reverts to your previous skin.
 - **Save** registers the theme into the native Appearance picker and applies it.
 - **Saved themes** list: apply / edit / delete each.
 - Everything is stored locally (`hermes-ext-custom-themes`); nothing is uploaded.
@@ -38,8 +56,8 @@ The core `registerHermesSkin()` allowlist excludes a few code/chat-surface token
 dark-mode variant, so on a mismatched base theme a custom theme's inline code and
 code blocks would inherit the base-theme values and could render unreadable. To
 cover that, the extension emits its own managed `<style>` (id
-`hwxThemeCreatorCodeStyles`) with those tokens derived from each saved theme's
-(and the live preview's) own palette, under both `:root[data-skin]` and
+`hwxThemeCreatorBgStyles`) with code-surface tokens derived from each saved theme's
+(and the live preview's) own palette alongside the glassmorphism CSS, under both `:root[data-skin]` and
 `:root.dark[data-skin]`, so a custom theme composes cleanly in Light, Dark, and
 System Default base modes. The block is refreshed on register/save/preview/delete.
 
@@ -56,8 +74,9 @@ extension does nothing destructive).
 Hermes WebUI page
   -> manifest-bundled extension assets
   -> /extensions/assets/theme-creator.js + .css
-  -> rail button -> editor panel (color pickers + live preview)
+  -> rail button -> editor panel (color pickers + optional image upload + live preview)
   -> window.registerHermesSkin({...derived tokens...})  -> native Appearance picker
+  -> managed <style> element: hwxThemeCreatorBgStyles (root background-image + semi-transparent vars + backdrop-filter blur)
   -> localStorage: hermes-ext-custom-themes (your saved themes)
                    hermes-skin (the core skin-selection key, to apply a theme)
 ```
@@ -101,11 +120,13 @@ This is trusted local code. Current disclosed behavior:
 
 - creates extension-owned DOM (a rail button + the editor panel)
 - calls `window.registerHermesSkin(...)` with derived, sanitized color tokens
-- injects a small extension-managed `<style>` (`hwxThemeCreatorCodeStyles`) for
-  per-theme code/chat token coverage, using validated hex/rgba values only
+- injects a single extension-managed `<style>` element:
+  - `hwxThemeCreatorBgStyles` for all per-theme overrides (root background image,
+    semi-transparent surface variables, code/chat token coverage, backdrop-filter blur) — uses validated
+    base64 data URLs only
 - reads/writes `localStorage`:
   - **owned:** `hermes-ext-custom-themes` (your saved themes; validated on read,
-    capped at 50 themes / 256 KB)
+    capped at 50 themes / 2 MB)
   - **shared:** `hermes-skin` — the core skin-selection key, written to apply a
     theme (the same key the built-in Appearance picker uses)
 - applies a theme through the core `window._pickSkin()` path when available, which
@@ -151,5 +172,17 @@ Manual verification (on a WebUI build with PR #5100):
 - Curated inputs with derived tokens (not every raw token is individually
   editable) — a deliberate usability trade-off.
 - Themes are per-browser (`localStorage`), not synced across devices.
+- Background images are stored as base64 JPEG data URLs (~70% quality,
+  max 1920 px wide). Large or high-res images are compressed to fit, but
+  images with many themes can push against the 2 MB `localStorage` ceiling.
+  JPEG compression also flattens any transparency in the original file.
+- Glassmorphism transparency (controlled by the **Glass opacity** slider) works best with
+  bright or vibrant images. Very dark images may still look nearly opaque
+  through the frosted-glass layer. Adjust opacity in the source if needed.
+- The glassmorphism overrides target known WebUI panel class names
+  (`.rail`, `.sidebar`, `.rightpanel`, `.main-view`). If the core WebUI
+  changes these class names, the effect will break until the extension is
+  updated. The `nav`/`main`/`aside` backdrop-filter and CSS variable
+  overrides are version-independent.
 - The brand logo glyph keeps its gold gradient (hardcoded in core; no skin
   recolors it).
