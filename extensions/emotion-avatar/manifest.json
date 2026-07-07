@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "emotion-avatar",
+      "name": "Emotion Avatar",
+      "description": "Modular companion avatar with 5 characters, emotion detection from FAC voice/LLM tags/agent state. Pluggable inputs, swappable renderers.",
+      "version": "0.7.0",
+      "author": "ChonSong",
+      "homepage": "https://github.com/ChonSong/hermes-webui-extensions/tree/main/extensions/emotion-avatar",
+      "repository": "https://github.com/ChonSong/hermes-webui-extensions"
+    }
+  ]
+}

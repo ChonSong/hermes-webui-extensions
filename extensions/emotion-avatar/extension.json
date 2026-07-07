@@ -1,0 +1,21 @@
+{
+  "id": "emotion-avatar",
+  "name": "Emotion Avatar",
+  "description": "Modular animated avatar with 5 characters, emotion detection from FAC/LLM/agent state, and swappable renderers",
+  "version": "0.7.0",
+  "author": "ChonSong",
+  "icon": "https://emojicdn.elk.sh/%F0%9F%91%8B",
+  "assets": [
+    "assets/core/presets.js",
+    "assets/core/visemes.js",
+    "assets/core/pipeline.js",
+    "assets/inputs/agent-state.js",
+    "assets/inputs/llm-tags.js",
+    "assets/inputs/fac-emotion.js",
+    "assets/renderers/canvas-2d.js",
+    "assets/emotion-avatar.js",
+    "assets/emotion-avatar.css"
+  ],
+  "dependencies": [],
+  "settings": {}
+}
