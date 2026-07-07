@@ -31,8 +31,11 @@ The **sidecar** is a single-file Python HTTP server (`sidecar/docker-tunnel-side
 mkdir -p ~/repos/hermes-webui-extensions/extensions/docker-tunnel-manager
 
 # Install systemd user service
+# NOTE: Adjust PYTHON to match your environment (python3 must have docker-py installed).
+# On this host: /home/sc/.hermes/hermes-agent/venv/bin/python3
+PYTHON=$(which python3)
 mkdir -p ~/.config/systemd/user
-cat > ~/.config/systemd/user/docker-tunnel-sidecar.service << 'SERVICE'
+cat > ~/.config/systemd/user/docker-tunnel-sidecar.service << SERVICE
 [Unit]
 Description=Docker & Tunnel Manager sidecar
 After=network-online.target docker.service
@@ -40,7 +43,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=python3 /home/sc/workspace/hermes-webui-extensions/extensions/docker-tunnel-manager/sidecar/docker-tunnel-sidecar.py
+ExecStart=${PYTHON} /home/sc/workspace/hermes-webui-extensions/extensions/docker-tunnel-manager/sidecar/docker-tunnel-sidecar.py
 Restart=on-failure
 RestartSec=5
 

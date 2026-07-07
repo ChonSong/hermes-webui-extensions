@@ -19,7 +19,9 @@ from urllib.parse import urlparse, parse_qs
 try:
     import docker
 except ImportError:
-    print("ERROR: docker-py not installed. Run: pip3 install docker")
+    print("ERROR: docker-py not installed. Run:")
+    print(f"  {os.path.dirname(sys.executable)}/pip3 install docker")
+    print(f"  (using sys.executable: {sys.executable})")
     sys.exit(1)
 
 SIDECAR_PORT = int(os.environ.get("DTM_SIDECAR_PORT", "17900"))
