@@ -19,6 +19,7 @@
   // Same-origin paths (self-hosted to bypass CSP — CDN scripts blocked by Content-Security-Policy)
   var BASE = '/extensions/emotion-avatar/assets/runtime/';
   var PIXI_CDN = BASE + 'pixi.min.js';
+  var PIXI_UNSAFE_CDN = BASE + 'pixi-unsafe-eval.min.js';
   var CUBISM_CDN = BASE + 'live2dcubismcore.min.js';
   var L2D_CDN = BASE + 'pixi-live2d-display.min.js';
 
@@ -72,12 +73,16 @@
 
     // Step 1: PIXI first (pixi-live2d-display depends on it)
     return injectScript(PIXI_CDN).then(function() {
+      showLoading('Patching CSP...');
+      // Step 2: @pixi/unsafe-eval shim (PIXI 7 requires unsafe-eval, blocked by CSP)
+      return injectScript(PIXI_UNSAFE_CDN);
+    }).then(function() {
       showLoading('Loading Cubism...');
-      // Step 2: Cubism core runtime
+      // Step 3: Cubism core runtime
       return injectScript(CUBISM_CDN);
     }).then(function() {
       showLoading('Loading display...');
-      // Step 3: pixi-live2d-display
+      // Step 4: pixi-live2d-display
       return injectScript(L2D_CDN);
     }).then(function() {
       hideLoading();
