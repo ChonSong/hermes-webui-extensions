@@ -25,11 +25,33 @@
     CONTROL: 0x03,
   };
 
+  const MAX_LOG_ENTRIES = 300;
+
   // ── Settings ────────────────────────────────────────────────────────
+  // network_external:false is a hard guarantee — the FAC server is a LOCAL app.
+  // Validate host to loopback only so a typed (or tampered-localStorage) host can
+  // never send microphone audio to an arbitrary external WebSocket. The WebUI CSP
+  // is report-only in some deployments, so this MUST be enforced in-code, not
+  // relied upon at the CSP layer.
+  function isLoopbackHost(host) {
+    const h = String(host || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+    if (h === 'localhost' || h === '::1' || h === '0.0.0.0') return true;
+    // 127.0.0.0/8
+    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (m && Number(m[1]) === 127 && m.slice(1).every((o) => Number(o) >= 0 && Number(o) <= 255)) return true;
+    return false;
+  }
+  function sanitizePort(port) {
+    const n = parseInt(String(port || '').trim(), 10);
+    return (Number.isInteger(n) && n >= 1 && n <= 65535) ? String(n) : '11236';
+  }
+
   function loadSettings() {
+    const rawHost = localStorage.getItem('hermes-ext-fac-host') || '127.0.0.1';
     return {
-      host: localStorage.getItem('hermes-ext-fac-host') || '127.0.0.1',
-      port: localStorage.getItem('hermes-ext-fac-port') || '11236',
+      // Defensive: never return a non-loopback host even if one was persisted.
+      host: isLoopbackHost(rawHost) ? rawHost.trim() : '127.0.0.1',
+      port: sanitizePort(localStorage.getItem('hermes-ext-fac-port') || '11236'),
       mode: localStorage.getItem('hermes-ext-fac-mode') || 'S2S',
       panelOpen: localStorage.getItem('hermes-ext-fac-panel-open') === 'true',
     };
@@ -227,11 +249,19 @@
     // Save settings on change
     [hostInput, portInput, modeSelect].forEach((el) => {
       el.addEventListener('change', () => {
+        const rawHost = hostInput.value.trim() || '127.0.0.1';
+        if (!isLoopbackHost(rawHost)) {
+          // Reject non-loopback hosts outright — this extension only talks to a
+          // LOCAL FAC server (network_external:false). Snap back to the default.
+          hostInput.value = '127.0.0.1';
+          addLog('Host must be loopback (localhost / 127.0.0.1) — reset to default', 'system');
+        }
         const settings = {
-          host: hostInput.value.trim() || '127.0.0.1',
-          port: portInput.value.trim() || '11236',
+          host: isLoopbackHost(rawHost) ? rawHost : '127.0.0.1',
+          port: sanitizePort(portInput.value),
           mode: modeSelect.value,
         };
+        portInput.value = settings.port;
         saveSettings(settings);
         addLog('Settings saved', 'system');
       });
@@ -293,6 +323,11 @@
     entry.className = 'hwx-fac-log-entry hwx-fac-' + (type || 'system');
     entry.textContent = text;
     logEl.appendChild(entry);
+    // Bound DOM growth: a long voice session or a reconnect loop would otherwise
+    // append log rows without limit. Keep the most recent MAX_LOG_ENTRIES.
+    while (logEl.childElementCount > MAX_LOG_ENTRIES) {
+      logEl.removeChild(logEl.firstChild);
+    }
     logEl.scrollTop = logEl.scrollHeight;
   }
 
@@ -362,6 +397,13 @@
     }
     setStatus(STATE.DISCONNECTED, 'Disconnected');
     stopRecording();
+    // Release the playback AudioContext — browsers cap concurrent contexts (~6),
+    // so leaking one per connect/disconnect cycle eventually throws.
+    if (audioContext) {
+      try { audioContext.close(); } catch (_) {}
+      audioContext = null;
+      gainNode = null;
+    }
   }
 
   function scheduleReconnect() {
@@ -597,10 +639,20 @@
       mediaRecorder = new MediaRecorder(mediaStream);
     }
 
-    mediaRecorder.ondataavailable = (event) => {
+    mediaRecorder.ondataavailable = async (event) => {
       if (event.data.size > 0 && connectionState === STATE.CONNECTED && ws && ws.readyState === WebSocket.OPEN) {
-        // Send as audio frame (type 0x01)
-        sendFrame(FAC_TYPE.AUDIO, event.data);
+        // MediaRecorder emits Blobs — convert to ArrayBuffer so sendFrame can
+        // frame the Opus bytes. Sending the Blob directly was silently dropped
+        // (sendFrame has no Blob branch), so no audio ever reached FAC.
+        try {
+          const buf = await event.data.arrayBuffer();
+          // Guard against a disconnect that happened during the async conversion.
+          if (connectionState === STATE.CONNECTED && ws && ws.readyState === WebSocket.OPEN) {
+            sendFrame(FAC_TYPE.AUDIO, buf);
+          }
+        } catch (e) {
+          addLog('Audio frame encode failed', 'system');
+        }
       }
     };
 

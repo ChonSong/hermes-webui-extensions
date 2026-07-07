@@ -10,9 +10,6 @@
     ],
     "stylesheets": [
       "assets/connector.css"
-    ],
-    "pages": [
-      "extension.html"
     ]
   },
   "capabilities": [

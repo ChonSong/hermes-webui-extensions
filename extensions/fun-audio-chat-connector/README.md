@@ -28,7 +28,6 @@ Binary WebSocket protocol to `ws://{host}:{port}/chat`:
 |---|---|
 | `extension.json` | Full extension descriptor with permissions |
 | `manifest.json` | Gallery bundle manifest |
-| `extension.html` | Standalone self-contained HTML page (opens full panel) |
 | `assets/connector.js` | Injected JS — creates floating mic button + overlay |
 | `assets/connector.css` | Styling for the panel |
 | `assets/icon.svg` | Mic icon (Feather mic style) |
@@ -37,7 +36,12 @@ Binary WebSocket protocol to `ws://{host}:{port}/chat`:
 
 - `dom.owned: true` — owns its overlay DOM subtree
 - `storage.owned` — persists host/port/mode settings
-- `network_external: false` — only connects to localhost
+- `network_external: false` — connects only to a **loopback** FAC server. The host
+  field is validated in-code (`localhost` / `127.0.0.0/8` / `::1` only); a non-loopback
+  host is rejected and reset to `127.0.0.1`, so mic audio can never reach an external
+  WebSocket. The FAC server is a separate local app you run yourself (see Usage) —
+  this extension only talks to it over a direct browser→loopback WebSocket, with no
+  bundled sidecar and no backend/proxy route.
 - `microphone: true` — requires mic access (browser prompt)
 
 ## Usage
