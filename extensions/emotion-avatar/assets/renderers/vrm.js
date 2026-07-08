@@ -367,16 +367,22 @@
   }
 
   // Load FBX idle animation onto the VRM rig
-  var BORED_FBX_URL = 'https://raw.githubusercontent.com/ToxSam/osa-gallery/main/public/animations/Bored.fbx';
+  var BORED_FBX_URL = 'assets/animations/Bored.fbx';
 
   function loadIdleAnimation() {
     var FBXLoader = window.__FBXLoader;
     var THREE = _THREE;
     if (!FBXLoader || !THREE || !_vrmScene) return;
 
+    // Resolve relative URL using extension base
+    var fbxUrl = BORED_FBX_URL;
+    if (!/^https?:/.test(fbxUrl) && !fbxUrl.startsWith('blob:')) {
+      fbxUrl = new URL(fbxUrl, _extUrl || window.location.href).href;
+    }
+
     showLoading('Loading idle anim...');
     var loader = new FBXLoader();
-    loader.load(BORED_FBX_URL,
+    loader.load(fbxUrl,
       function(fbx) {
         hideLoading();
         var clip = fbx.animations && fbx.animations[0];
