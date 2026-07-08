@@ -17,8 +17,8 @@
       "assets/renderers/canvas-2d.js",
       "assets/renderers/live2d.js",
       "assets/renderers/spine.js",
-      "assets/renderers/vrm.js",
       "assets/renderers/model-manager.js",
+      "assets/renderers/vrm.js",
       "assets/emotion-avatar.js"
     ],
     "stylesheets": [
@@ -40,6 +40,8 @@
     "storage": {
       "owned": true
     },
+    "loopback_sidecar": false,
+    "native_host": false,
     "webui_api": {
       "read": [],
       "write": []
