@@ -14,7 +14,9 @@
 
   /* ── Constants ─────────────────────────────────────────────────── */
 
-  const SIDECAR_ORIGIN = 'http://127.0.0.1:17900';
+  // Sidecar proxy path — the WebUI backend proxies to 127.0.0.1:17900
+  // so the extension works both locally and through Cloudflare tunnels.
+  const SIDECAR_PROXY = '/api/extensions/docker-tunnel-manager/sidecar';
   const RAIL_BTN_ID = 'hwxDtmRailBtn';
   const OVERLAY_ID = 'hwxDtmOverlay';
 
@@ -35,7 +37,6 @@
           return {
             autoRefresh: s.get('autoRefresh') !== false,
             refreshInterval: parseInt(s.get('refreshInterval') || '15', 10) || 15,
-            sidecarPort: parseInt(s.get('sidecarPort') || '17900', 10) || 17900,
           };
         }
       }
@@ -48,28 +49,26 @@
         return {
           autoRefresh: c.autoRefresh !== false,
           refreshInterval: parseInt(c.refreshInterval || '15', 10) || 15,
-          sidecarPort: parseInt(c.sidecarPort || '17900', 10) || 17900,
         };
       }
     } catch (_) {}
-    return { autoRefresh: true, refreshInterval: 15, sidecarPort: 17900 };
+    return { autoRefresh: true, refreshInterval: 15 };
   }
 
   function apiUrl(path) {
-    const port = loadCfg().sidecarPort;
-    return `http://127.0.0.1:${port}${path}`;
+    return SIDECAR_PROXY + path;
   }
 
   /* ── HTTP helpers ──────────────────────────────────────────────── */
 
   async function apiGet(path) {
-    const res = await fetch(apiUrl(path), { credentials: 'omit' });
+    const res = await fetch(apiUrl(path));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
 
   async function apiPost(path) {
-    const res = await fetch(apiUrl(path), { method: 'POST', credentials: 'omit' });
+    const res = await fetch(apiUrl(path), { method: 'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
@@ -173,7 +172,7 @@
       container.innerHTML = html;
       wireActions(container);
     } catch (e) {
-      showError(container, 'Sidecar unreachable on port 17900. Is the sidecar running?');
+      showError(container, 'Docker/Tunnel sidecar unreachable. Ensure the sidecar is running.');
     }
   }
 
@@ -200,7 +199,7 @@
       html += '</tbody></table></div>';
       container.innerHTML = html;
     } catch (e) {
-      showError(container, 'Sidecar unreachable');
+      showError(container, `Sidecar error: ${e.message || e}`);
     }
   }
 
@@ -238,18 +237,14 @@
       }
       container.innerHTML = html;
     } catch (e) {
-      showError(container, 'Sidecar unreachable');
+      showError(container, `Sidecar error: ${e.message || e}`);
     }
   }
 
   async function renderTunnel(container) {
     showLoading(container);
     try {
-      const [tunData, healthData] = await Promise.all([
-        apiGet('/api/tunnels').catch(() => ({ tunnels: [] })),
-        apiGet('/api/tunnels/health').catch(() => ({ routes: [] })),
-      ]);
-
+      const tunData = await apiGet('/api/tunnels').catch(() => ({ tunnels: [] }));
       const tun = tunData.tunnels && tunData.tunnels[0];
       if (!tun) {
         container.innerHTML = '<div class="hwx-dtm-empty"><div class="hwx-dtm-empty-icon">🔒</div><div class="hwx-dtm-empty-text">No tunnel data. Is cloudflared installed?</div></div>';
@@ -258,34 +253,63 @@
 
       let html = '<div style="margin-bottom:12px">';
       // Tunnel header
+      const cc = tun.connector_count != null ? tun.connector_count : (tun.connectors ? tun.connectors.length : 0);
       html += `<div style="font-size:13px;font-weight:600;margin-bottom:4px;color:var(--text,#fff)">${t(tun.name)}</div>`;
       html += `<div class="hwx-dtm-tunnel-id">${t(tun.id || '—')}</div>`;
-      html += `<div style="font-size:12px;margin-top:4px;color:var(--muted,#888)">${tun.connector_count || tun.connectors.length} connector${(tun.connector_count || tun.connectors.length) !== 1 ? 's' : ''} · ${tun.connectors.length > 0 ? tun.connectors[0].age : 'N/A'} old</div>`;
+      html += `<div style="font-size:12px;margin-top:4px;color:var(--muted,#888)">${cc} connector${cc !== 1 ? 's' : ''}</div>`;
       html += '</div>';
 
-      // Health routes
-      if (healthData.routes && healthData.routes.length > 0) {
-        html += `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted,#888);margin-bottom:6px">Ingress Health <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">(checked ${t(healthData.checked_at || '')})</span></div>`;
-        html += '<div class="hwx-dtm-table-wrap"><table class="hwx-dtm-table"><thead><tr><th>Hostname</th><th>Backend</th><th>Status</th><th>Code</th><th>Latency</th></tr></thead><tbody>';
-        for (const r of healthData.routes) {
+      // Ingress routes (from tunnel info — instant)
+      const ingress = tun.ingress || [];
+      if (ingress.length > 0) {
+        html += `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted,#888);margin-bottom:6px">Ingress Routes (${ingress.length})</div>`;
+        html += '<div class="hwx-dtm-table-wrap"><table class="hwx-dtm-table"><thead><tr><th>Hostname</th><th>Backend</th></tr></thead><tbody>';
+        for (const r of ingress) {
           html += `<tr>
             <td class="hwx-dtm-name">${t(r.hostname)}</td>
-            <td class="hwx-dtm-mono">${t(r.service)}</td>
-            <td class="${healthClass(r.status)}" style="font-weight:600">${r.status}</td>
-            <td class="hwx-dtm-mono">${r.http_code || '—'}</td>
-            <td class="hwx-dtm-mono">${r.latency ? r.latency + 's' : '—'}</td>
+            <td class="hwx-dtm-mono">${t(r.service || '—')}</td>
           </tr>`;
         }
         html += '</tbody></table></div>';
-      } else {
-        html += '<div style="font-size:12px;color:var(--muted,#888);margin-bottom:8px">No health data</div>';
       }
+
+      // Health (lazy-loaded — non-blocking)
+      html += `<div id="hwxDtmHealth" style="margin-top:12px;font-size:12px;color:var(--muted,#888)">Checking ingress health…</div>`;
 
       // Logs toggle
       html += `<div style="margin-top:12px"><button class="hwx-dtm-bar-btn hwx-dtm-toggle-logs">Show tunnel logs</button></div>`;
       html += '<div class="hwx-dtm-logs" id="hwxDtmLogs" style="display:none;margin-top:8px"></div>';
 
       container.innerHTML = html;
+
+      // Lazy health fetch (does not block render)
+      apiGet('/api/tunnels/health')
+        .then(healthData => {
+          const hd = container.querySelector('#hwxDtmHealth');
+          if (!hd) return;
+          const routes = healthData.routes || [];
+          if (routes.length === 0) {
+            hd.innerHTML = 'No health data';
+            return;
+          }
+          let h = `<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--muted,#888);margin-bottom:6px">Ingress Health <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px">(checked ${t(healthData.checked_at || '')})</span></div>`;
+          h += '<div class="hwx-dtm-table-wrap"><table class="hwx-dtm-table"><thead><tr><th>Hostname</th><th>Backend</th><th>Status</th><th>Code</th><th>Latency</th></tr></thead><tbody>';
+          for (const r of routes) {
+            h += `<tr>
+              <td class="hwx-dtm-name">${t(r.hostname)}</td>
+              <td class="hwx-dtm-mono">${t(r.service)}</td>
+              <td class="${healthClass(r.status)}" style="font-weight:600">${r.status}</td>
+              <td class="hwx-dtm-mono">${r.http_code || '—'}</td>
+              <td class="hwx-dtm-mono">${r.latency ? r.latency + 's' : '—'}</td>
+            </tr>`;
+          }
+          h += '</tbody></table></div>';
+          hd.outerHTML = h;
+        })
+        .catch(() => {
+          const hd = container.querySelector('#hwxDtmHealth');
+          if (hd) hd.innerHTML = 'Health check failed';
+        });
 
       // Wire log toggle
       const logBtn = container.querySelector('.hwx-dtm-toggle-logs');
@@ -309,7 +333,7 @@
         };
       }
     } catch (e) {
-      showError(container, 'Sidecar unreachable');
+      showError(container, `Sidecar error: ${e.message || e}`);
     }
   }
 
@@ -387,7 +411,7 @@
         };
       });
     } catch (e) {
-      showError(container, 'Sidecar unreachable');
+      showError(container, `Sidecar error: ${e.message || e}`);
     }
   }
 
@@ -403,27 +427,22 @@
       }
       let html = '';
       for (const proj of data.projects) {
+        const projectName = proj.project || 'unknown';
         html += `<div class="hwx-dtm-compose-card" style="margin-bottom:16px;border:1px solid var(--border,#333);border-radius:8px;overflow:hidden">`;
-        html += `<div style="background:var(--surface2,#1e1e2e);padding:10px 14px;font-size:13px;font-weight:600;color:var(--text,#fff);border-bottom:1px solid var(--border,#333)">📋 ${t(proj.name)}</div>`;
-        if (proj.containers && proj.containers.length > 0) {
-          html += '<div class="hwx-dtm-table-wrap"><table class="hwx-dtm-table"><thead><tr><th></th><th>Name</th><th>Image</th><th>Ports</th></tr></thead><tbody>';
-          for (const c of proj.containers) {
-            html += `<tr>
-              <td>${statusDot(c.state || 'exited')}</td>
-              <td class="hwx-dtm-name">${t(c.name)}</td>
-              <td class="hwx-dtm-mono">${t(c.image || '—')}</td>
-              <td style="font-size:11px;color:var(--muted,#888)">${t(c.ports || '—')}</td>
-            </tr>`;
-          }
-          html += '</tbody></table></div>';
+        html += `<div style="background:var(--surface2,#1e1e2e);padding:10px 14px;font-size:13px;font-weight:600;color:var(--text,#fff);border-bottom:1px solid var(--border,#333)">📋 ${t(projectName)}</div>`;
+        html += `<div style="padding:10px 14px;display:flex;gap:16px;font-size:12px;color:var(--muted,#888);flex-wrap:wrap">`;
+        html += `<span>Containers: <b style="color:var(--text)">${proj.running_count || 0}/${proj.container_count || 0}</b></span>`;
+        if (proj.services && proj.services.length) {
+          html += `<span>Services: <b style="color:var(--text)">${t(proj.services.join(', '))}</b></span>`;
         } else {
-          html += '<div style="padding:14px;font-size:12px;color:var(--muted,#888)">No containers in this project</div>';
+          html += `<span>Services: <b style="color:var(--text)">—</b></span>`;
         }
-        html += '</div>';
+        html += `</div>`;
+        html += `</div>`;
       }
       container.innerHTML = html;
     } catch (e) {
-      showError(container, 'Sidecar unreachable');
+      showError(container, `Compose error: ${e.message || e}`);
     }
   }
 
@@ -509,7 +528,7 @@
       // Auto-connect to first container
       connectLogs(select.value);
     } catch (e) {
-      showError(container, 'Sidecar unreachable');
+      showError(container, `Sidecar error: ${e.message || e}`);
     }
   }
 
@@ -666,13 +685,23 @@
     btn.id = RAIL_BTN_ID;
     btn.className = 'rail-btn';  // reuse existing rail-btn class
     btn.title = 'Docker & Tunnel Manager';
-    btn.innerHTML = '🐳';
-    btn.style.fontSize = '18px';
-    btn.style.lineHeight = '1';
+    btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="7" width="18" height="13" rx="2"/>
+      <path d="M5 7V5a3 3 0 0 1 6 0v2"/>
+      <line x1="12" y1="12" x2="12" y2="20"/>
+      <line x1="9" y1="15" x2="15" y2="15"/>
+    </svg>`;
+    btn.style.fontSize = '';
+    btn.style.lineHeight = '';
 
-    const firstBtn = rail.querySelector('.rail-btn');
-    if (firstBtn) {
-      rail.insertBefore(btn, firstBtn);
+    const themeBtn = document.getElementById('hwxThemeCreatorRailBtn');
+    const spacer = rail.querySelector('.rail-spacer');
+    if (themeBtn && themeBtn.nextSibling) {
+      // Insert just after theme-creator (beneath it, above spacer).
+      rail.insertBefore(btn, themeBtn.nextSibling);
+    } else if (spacer) {
+      // Fallback: just after the spacer if theme-creator isn't present.
+      rail.insertBefore(btn, spacer.nextSibling);
     } else {
       rail.appendChild(btn);
     }
