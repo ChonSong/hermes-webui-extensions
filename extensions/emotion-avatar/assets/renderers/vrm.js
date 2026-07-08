@@ -209,37 +209,13 @@
     var _blinkTimer = 2;
     var _blinkPhase = 0;
     var _blendWeights = {};
-    // Expression -> blend shape target map
-    var EXPR_MAP = {
-      idle:       { aa: 0, ee: 0, ih: 0, oh: 0, ou: 0, blink: 0 },
-      happy:      { aa: 0.3, ee: 0, ih: 0, oh: 0, ou: 0, blink: 0 },
-      sad:        { aa: 0, ee: 0.3, ih: 0, oh: 0.2, ou: 0, blink: 0 },
-      surprised:  { aa: 0.2, ee: 0, ih: 0, oh: 0.8, ou: 0, blink: 0 },
-      angry:      { aa: 0.5, ee: 0, ih: 0.4, oh: 0, ou: 0, blink: 0 },
-      thinking:   { aa: 0, ee: 0.2, ih: 0.1, oh: 0.1, ou: 0, blink: 0 },
-      confused:   { aa: 0.1, ee: 0.3, ih: 0.1, oh: 0.2, ou: 0.1, blink: 0 },
-      excited:    { aa: 0.7, ee: 0, ih: 0, oh: 0.5, ou: 0, blink: 0 },
-      worried:    { aa: 0, ee: 0.2, ih: 0.2, oh: 0, ou: 0.3, blink: 0 },
-      speaking:   function() {
-        var t = (Date.now() % 1000) / 1000;
-        return {
-          aa: 0.5 * Math.sin(t * Math.PI * 4),
-          ee: 0.2 * Math.sin(t * Math.PI * 2 + 4),
-          ih: 0.3 * Math.sin(t * Math.PI * 3 + 1),
-          oh: 0.4 * Math.sin(t * Math.PI * 2 + 2),
-          ou: 0.3 * Math.sin(t * Math.PI * 2 + 3),
-          blink: 0
-        };
-      }
-    };
 
     return {
       updateBlends: function(vrm, expr) {
         var manager = vrm.expressionManager;
         if (!manager) return;
 
-        var targets = EXPR_MAP[expr];
-        if (typeof targets === 'function') targets = targets();
+        var targets = __ea.getBlends(expr) || {};
 
         var speed = 0.05;
         var keys = ['aa', 'ee', 'ih', 'oh', 'ou', 'blink'];
