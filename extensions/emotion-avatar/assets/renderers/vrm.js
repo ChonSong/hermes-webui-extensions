@@ -435,59 +435,12 @@
       loader.load(url,
         function(fbx) {
           var clip = THREE.AnimationClip.findByName(fbx.animations, 'mixamo.com');
+          if (!clip) { clip = fbx.animations[0]; }
           if (!clip) { resolve(); return; }
 
-          var tracks = [];
-          var restRotationInverse = new THREE.Quaternion();
-          var parentRestWorldRotation = new THREE.Quaternion();
-          var _quatA = new THREE.Quaternion();
-
-          var isVrm0 = self.vrm.meta && self.vrm.meta.metaVersion === '0';
-
-          clip.tracks.forEach(function(track) {
-            var splitted = track.name.split('.');
-            var mixamoName = splitted[0];
-            var vrmBoneName = mixamoVRMRigMap[mixamoName];
-            if (!vrmBoneName) return;
-            var vrmNode = self.vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
-            var vrmNodeName = vrmNode ? vrmNode.name : null;
-            if (!vrmNodeName) return;
-
-            var prop = splitted[1];
-            var isQuat = track instanceof THREE.QuaternionKeyframeTrack;
-
-            if (isQuat) {
-              var rigNode = fbx.getObjectByName(mixamoName);
-              if (!rigNode || !rigNode.parent) return;
-              rigNode.getWorldQuaternion(restRotationInverse).invert();
-              rigNode.parent.getWorldQuaternion(parentRestWorldRotation);
-              for (var i = 0; i < track.values.length; i += 4) {
-                _quatA.fromArray(track.values, i);
-                _quatA.premultiply(parentRestWorldRotation).multiply(restRotationInverse);
-                _quatA.toArray(track.values, i);
-              }
-              var newValues = track.values.slice();
-              if (isVrm0) {
-                for (var k = 0; k < newValues.length; k++) {
-                  if (k % 4 === 1 || k % 4 === 3) newValues[k] = -newValues[k];
-                }
-              }
-              tracks.push(new THREE.QuaternionKeyframeTrack(
-                vrmNodeName + '.' + prop, track.times, newValues
-              ));
-            } else if (track instanceof THREE.VectorKeyframeTrack) {
-              var value = track.values.slice();
-              if (isVrm0) {
-                for (var k = 0; k < value.length; k += 3) {
-                  value[k] = -value[k];
-                  value[k + 2] = -value[k + 2];
-                }
-              }
-              tracks.push(new THREE.VectorKeyframeTrack(
-                vrmNodeName + '.' + prop, track.times, value
-              ));
-            }
-          });
+          // Use the raw FBX clip directly — both model and animation use Mixamo rig.
+          // No bone retargeting needed since bone names already match.
+          var tracks = clip.tracks.slice();
 
           if (tracks.length === 0) { resolve(); return; }
           var retargetedClip = new THREE.AnimationClip('anim_' + name, clip.duration, tracks);
