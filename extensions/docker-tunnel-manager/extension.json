@@ -1,8 +1,8 @@
 {
   "id": "docker-tunnel-manager",
   "name": "Docker & Tunnel Manager",
-  "description": "View and manage Docker containers, images, system resource usage, and prune unused resources. Start/stop/restart containers. Monitor Cloudflare tunnel status and health-check all tunnel backends. Runs a local Python sidecar (port 17900) that talks to the Docker socket and cloudflared CLI.",
-  "version": "0.1.0",
+  "description": "View and manage Docker containers, images, volumes, system resource usage, and prune unused resources. Start/stop/restart containers. Live container log streaming (SSE). Compose project view with service status. Image history and layer explorer. Monitor Cloudflare tunnel status and health-check all tunnel backends. Runs a local Python sidecar (port 17900) that talks to the Docker socket and cloudflared CLI.",
+  "version": "0.2.0",
   "author": "ChonSong",
   "homepage": "https://github.com/ChonSong/hermes-webui-extensions",
   "assets": {

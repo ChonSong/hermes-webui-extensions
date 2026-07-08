@@ -22,6 +22,7 @@
   let activeTab = 'containers';
   let refreshTimer = null;
   let pendingActions = new Set();
+  let activeEventSource = null;
 
   /* ── Settings helpers ──────────────────────────────────────────── */
 
@@ -312,6 +313,206 @@
     }
   }
 
+  /* ── Logs EventSource helper ────────────────────────────────────── */
+
+  function disconnectEventSource() {
+    if (activeEventSource) {
+      activeEventSource.close();
+      activeEventSource = null;
+    }
+  }
+
+  /* ── Volumes tab ────────────────────────────────────────────────── */
+
+  async function renderVolumes(container) {
+    showLoading(container);
+    try {
+      const data = await apiGet('/api/volumes');
+      if (!data.volumes || data.volumes.length === 0) {
+        container.innerHTML = '<div class="hwx-dtm-empty"><div class="hwx-dtm-empty-icon">📦</div><div class="hwx-dtm-empty-text">No volumes</div></div>';
+        return;
+      }
+      let html = '<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">';
+      html += `<span style="font-size:12px;color:var(--muted,#888)">${data.volumes.length} volume${data.volumes.length !== 1 ? 's' : ''}</span>`;
+      html += '<button class="hwx-dtm-bar-btn danger" id="hwxDtmPruneVol">Prune unused</button>';
+      html += '</div>';
+      html += '<div class="hwx-dtm-table-wrap"><table class="hwx-dtm-table"><thead><tr><th>Name</th><th>Driver</th><th>Mountpoint</th><th>Size</th><th>Containers</th><th></th></tr></thead><tbody>';
+      for (const v of data.volumes) {
+        html += `<tr>
+          <td class="hwx-dtm-name">${t(v.name)}</td>
+          <td class="hwx-dtm-mono">${t(v.driver || 'local')}</td>
+          <td class="hwx-dtm-mono" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t(v.mountpoint || '')}">${t(v.mountpoint || '—')}</td>
+          <td>${t(v.size_human || '—')}</td>
+          <td>${v.containers && v.containers.length ? t(v.containers.join(', ')) : '—'}</td>
+          <td class="hwx-dtm-action-cell"><button class="hwx-dtm-act danger" data-action="delvol" data-volname="${t(v.name)}">Delete</button></td>
+        </tr>`;
+      }
+      html += '</tbody></table></div>';
+      container.innerHTML = html;
+
+      // Prune button
+      const pruneBtn = container.querySelector('#hwxDtmPruneVol');
+      if (pruneBtn) {
+        pruneBtn.onclick = async () => {
+          const ok = await showConfirm('Prune Volumes', 'Remove all unused local volumes?');
+          if (!ok) return;
+          pruneBtn.disabled = true;
+          pruneBtn.textContent = 'Pruning…';
+          try {
+            const res = await apiPost('/api/volumes/prune');
+            showToast(res.message || 'Volumes pruned', 'success');
+          } catch (e) {
+            showToast('Prune failed: ' + e.message, 'error');
+          }
+          pruneBtn.disabled = false;
+          pruneBtn.textContent = 'Prune unused';
+          refreshTab();
+        };
+      }
+
+      // Delete buttons
+      container.querySelectorAll('.hwx-dtm-act[data-action="delvol"]').forEach(btn => {
+        btn.onclick = async () => {
+          const name = btn.dataset.volname;
+          const ok = await showConfirm('Delete Volume', `Are you sure you want to delete volume <strong>${t(name)}</strong>?`);
+          if (!ok) return;
+          btn.outerHTML = spinner();
+          try {
+            await apiPost(`/api/volumes/${encodeURIComponent(name)}/delete`);
+            showToast(`Deleted volume ${name}`, 'success');
+          } catch (e) {
+            showToast(`Delete failed: ${e.message}`, 'error');
+          }
+          refreshTab();
+        };
+      });
+    } catch (e) {
+      showError(container, 'Sidecar unreachable');
+    }
+  }
+
+  /* ── Compose tab ────────────────────────────────────────────────── */
+
+  async function renderCompose(container) {
+    showLoading(container);
+    try {
+      const data = await apiGet('/api/compose');
+      if (!data.projects || data.projects.length === 0) {
+        container.innerHTML = '<div class="hwx-dtm-empty"><div class="hwx-dtm-empty-icon">📋</div><div class="hwx-dtm-empty-text">No compose projects found</div></div>';
+        return;
+      }
+      let html = '';
+      for (const proj of data.projects) {
+        html += `<div class="hwx-dtm-compose-card" style="margin-bottom:16px;border:1px solid var(--border,#333);border-radius:8px;overflow:hidden">`;
+        html += `<div style="background:var(--surface2,#1e1e2e);padding:10px 14px;font-size:13px;font-weight:600;color:var(--text,#fff);border-bottom:1px solid var(--border,#333)">📋 ${t(proj.name)}</div>`;
+        if (proj.containers && proj.containers.length > 0) {
+          html += '<div class="hwx-dtm-table-wrap"><table class="hwx-dtm-table"><thead><tr><th></th><th>Name</th><th>Image</th><th>Ports</th></tr></thead><tbody>';
+          for (const c of proj.containers) {
+            html += `<tr>
+              <td>${statusDot(c.state || 'exited')}</td>
+              <td class="hwx-dtm-name">${t(c.name)}</td>
+              <td class="hwx-dtm-mono">${t(c.image || '—')}</td>
+              <td style="font-size:11px;color:var(--muted,#888)">${t(c.ports || '—')}</td>
+            </tr>`;
+          }
+          html += '</tbody></table></div>';
+        } else {
+          html += '<div style="padding:14px;font-size:12px;color:var(--muted,#888)">No containers in this project</div>';
+        }
+        html += '</div>';
+      }
+      container.innerHTML = html;
+    } catch (e) {
+      showError(container, 'Sidecar unreachable');
+    }
+  }
+
+  /* ── Logs tab ───────────────────────────────────────────────────── */
+
+  async function renderLogs(container) {
+    showLoading(container);
+    try {
+      const data = await apiGet('/api/containers');
+      const containers = data.containers || [];
+      if (containers.length === 0) {
+        container.innerHTML = '<div class="hwx-dtm-empty"><div class="hwx-dtm-empty-icon">📜</div><div class="hwx-dtm-empty-text">No containers available for logs</div></div>';
+        return;
+      }
+      // Build container selector + controls
+      let opts = '';
+      for (const c of containers) {
+        opts += `<option value="${t(c.id)}">${t(c.name)}</option>`;
+      }
+      let html = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <select class="hwx-dtm-logs-select" id="hwxDtmLogsSelect" style="background:var(--surface,#181825);color:var(--text,#fff);border:1px solid var(--border,#333);border-radius:6px;padding:6px 10px;font-size:12px;flex:1;min-width:160px">${opts}</select>
+        <button class="hwx-dtm-bar-btn" id="hwxDtmLogsToggle" style="white-space:nowrap">Streaming: ON</button>
+        <button class="hwx-dtm-bar-btn" id="hwxDtmLogsClear">Clear</button>
+        <span style="font-size:11px;color:var(--muted,#888);margin-left:4px" id="hwxDtmLogsStatus"></span>
+      </div>
+      <div class="hwx-dtm-logs" id="hwxDtmLogsDisplay" style="height:400px;overflow-y:auto;background:var(--surface,#181825);border:1px solid var(--border,#333);border-radius:6px;padding:10px;font-family:monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all"></div>`;
+      container.innerHTML = html;
+
+      const select = container.querySelector('#hwxDtmLogsSelect');
+      const display = container.querySelector('#hwxDtmLogsDisplay');
+      const toggleBtn = container.querySelector('#hwxDtmLogsToggle');
+      const clearBtn = container.querySelector('#hwxDtmLogsClear');
+      const statusEl = container.querySelector('#hwxDtmLogsStatus');
+
+      let streaming = true;
+
+      function updateToggleLabel() {
+        toggleBtn.textContent = streaming ? 'Streaming: ON' : 'Streaming: OFF';
+      }
+
+      function connectLogs(cid) {
+        disconnectEventSource();
+        display.textContent = '';
+        statusEl.textContent = 'Connecting…';
+
+        const url = apiUrl(`/api/containers/${encodeURIComponent(cid)}/logs?tail=200&follow=true`);
+        activeEventSource = new EventSource(url);
+
+        activeEventSource.onmessage = (e) => {
+          if (!streaming) return;
+          display.textContent += e.data + '\n';
+          display.scrollTop = display.scrollHeight;
+        };
+
+        activeEventSource.onerror = () => {
+          statusEl.textContent = 'Disconnected';
+          statusEl.style.color = 'var(--red,#f38ba8)';
+        };
+
+        activeEventSource.onopen = () => {
+          statusEl.textContent = 'Connected';
+          statusEl.style.color = 'var(--green,#a6e3a1)';
+        };
+      }
+
+      select.onchange = () => connectLogs(select.value);
+
+      toggleBtn.onclick = () => {
+        streaming = !streaming;
+        updateToggleLabel();
+        if (streaming) {
+          // Reconnect to get fresh stream
+          connectLogs(select.value);
+        } else {
+          disconnectEventSource();
+          statusEl.textContent = 'Paused';
+          statusEl.style.color = 'var(--muted,#888)';
+        }
+      };
+
+      clearBtn.onclick = () => { display.textContent = ''; };
+
+      // Auto-connect to first container
+      connectLogs(select.value);
+    } catch (e) {
+      showError(container, 'Sidecar unreachable');
+    }
+  }
+
   /* ── Wire action buttons ───────────────────────────────────────── */
 
   function wireActions(container) {
@@ -347,6 +548,9 @@
     images: renderImages,
     system: renderSystem,
     tunnel: renderTunnel,
+    volumes: renderVolumes,
+    compose: renderCompose,
+    logs: renderLogs,
   };
 
   function refreshTab() {
@@ -357,6 +561,7 @@
   }
 
   function switchTab(tab) {
+    if (activeTab === 'logs') disconnectEventSource();
     activeTab = tab;
     document.querySelectorAll('.hwx-dtm-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     refreshTab();
@@ -395,6 +600,9 @@
           <button class="hwx-dtm-tab" data-tab="images">Images</button>
           <button class="hwx-dtm-tab" data-tab="system">System</button>
           <button class="hwx-dtm-tab" data-tab="tunnel">Tunnel</button>
+          <button class="hwx-dtm-tab" data-tab="volumes">Volumes</button>
+          <button class="hwx-dtm-tab" data-tab="compose">Compose</button>
+          <button class="hwx-dtm-tab" data-tab="logs">Logs</button>
         </div>
         <button class="hwx-dtm-bar-btn hwx-dtm-refresh-btn">↻</button>
         <button class="hwx-dtm-bar-btn hwx-dtm-close">✕</button>
@@ -430,6 +638,7 @@
   function closeOverlay() {
     if (!overlayOpen) return;
     overlayOpen = false;
+    disconnectEventSource();
     const overlay = document.getElementById(OVERLAY_ID);
     if (overlay) overlay.style.display = 'none';
     const btn = document.getElementById(RAIL_BTN_ID);

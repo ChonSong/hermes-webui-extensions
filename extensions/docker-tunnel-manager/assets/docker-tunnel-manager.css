@@ -41,6 +41,7 @@
   display: flex;
   gap: 0;
   flex: 1 1 auto;
+  flex-wrap: wrap;
 }
 
 .hwx-dtm-tab {
@@ -50,7 +51,7 @@
   color: var(--muted, #888);
   font-size: 12px;
   font-weight: 500;
-  padding: 4px 14px;
+  padding: 4px 10px;
   cursor: pointer;
   border-radius: 6px 6px 0 0;
   transition: color .12s, background .12s;
@@ -372,7 +373,88 @@
   border: 1px solid var(--border2, rgba(127,127,127,.1));
   border-radius: 6px;
   padding: 10px;
-  max-height: 240px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* ── Compose project cards ─────────────────────────────────────────── */
+
+.hwx-dtm-compose-project {
+  background: var(--surface, #1a1d27);
+  border: 1px solid var(--border2, rgba(127,127,127,.15));
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.hwx-dtm-compose-header {
+  font-weight: 600;
+  color: var(--text, #fff);
+  margin-bottom: 8px;
+}
+
+.hwx-dtm-compose-stats {
+  font-size: 11px;
+  color: var(--muted, #888);
+}
+
+/* ── Log viewer toolbar ────────────────────────────────────────────── */
+
+.hwx-dtm-log-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.hwx-dtm-log-select {
+  background: var(--code-bg, rgba(127,127,127,.1));
+  color: var(--text, #fff);
+  border: 1px solid var(--border2, rgba(127,127,127,.25));
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hwx-dtm-log-follow {
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127,127,127,.25));
+  background: var(--code-bg, rgba(127,127,127,.1));
+  color: var(--text, #fff);
+  border-radius: 7px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+  white-space: nowrap;
+}
+
+.hwx-dtm-log-follow:hover {
+  background: var(--hover-bg, rgba(127,127,127,.16));
+  border-color: var(--border, rgba(127,127,127,.4));
+}
+
+.hwx-dtm-log-follow.active {
+  background: var(--accent, #6366f1);
+  border-color: var(--accent, #6366f1);
+  color: #fff;
+}
+
+/* ── Log viewer (extended logs area) ───────────────────────────────── */
+
+.hwx-dtm-log-viewer {
+  font-family: var(--font-mono, 'SF Mono', monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted, #aaa);
+  white-space: pre-wrap;
+  background: var(--code-bg, rgba(127,127,127,.06));
+  border: 1px solid var(--border2, rgba(127,127,127,.1));
+  border-radius: 6px;
+  padding: 10px;
+  min-height: 300px;
+  max-height: 500px;
   overflow-y: auto;
 }
 

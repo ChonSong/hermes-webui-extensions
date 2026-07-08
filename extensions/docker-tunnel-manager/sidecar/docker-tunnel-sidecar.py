@@ -6,6 +6,7 @@ Binds to 127.0.0.1:17900 (no network exposure).
 Requires: python3, docker-py, cloudflared CLI, docker group membership.
 """
 
+import io
 import json
 import os
 import re
@@ -22,9 +23,20 @@ except ImportError:
     print("ERROR: docker-py not installed. Run: pip3 install docker")
     sys.exit(1)
 
+# ── Tunnel adapter (pluggable) ──────────────────────────────────────
+
+try:
+    from .tunnel_adapter import CloudflareAdapter
+except ImportError:
+    from tunnel_adapter import CloudflareAdapter  # fallback for direct invocation
+
 SIDECAR_PORT = int(os.environ.get("DTM_SIDECAR_PORT", "17900"))
 CLOUDFLARED_CONFIG = os.path.expanduser("~/.cloudflared/config.yml")
 TUNNEL_NAME = "codeovertcp"
+_tunnel_adapter = CloudflareAdapter(
+    config_path=CLOUDFLARED_CONFIG,
+    tunnel_name=TUNNEL_NAME,
+)
 
 
 def fmt_size(b):
@@ -66,6 +78,7 @@ class DockerTunnelHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+        parts = path.split("/")
         qs = parse_qs(parsed.query)
         try:
             if path == "/api/health":
@@ -82,6 +95,16 @@ class DockerTunnelHandler(BaseHTTPRequestHandler):
                 return self._handle_tunnel_health()
             elif path == "/api/tunnels/logs":
                 return self._handle_tunnel_logs(int(qs.get("lines", ["50"])[0]))
+            elif path == "/api/volumes":
+                return self._handle_volumes()
+            elif path == "/api/compose":
+                return self._handle_compose()
+            elif len(parts) >= 5 and parts[1:4] == ["api", "images"] and parts[4] == "history":
+                return self._handle_image_history(parts[3])
+            elif len(parts) >= 5 and parts[1:4] == ["api", "containers"] and parts[4] == "logs":
+                tail = int(qs.get("tail", ["100"])[0])
+                follow = qs.get("follow", ["true"])[0].lower() != "false"
+                return self._handle_container_logs(parts[3], tail=tail, follow=follow)
             else:
                 self._json({"error": "not found"}, 404)
         except Exception as e:
@@ -101,6 +124,10 @@ class DockerTunnelHandler(BaseHTTPRequestHandler):
                 return self._handle_prune_images()
             if parts[1:4] == ["api", "system", "prune"]:
                 return self._handle_system_prune()
+            if parts[1:4] == ["api", "volumes", "prune"]:
+                return self._handle_prune_volumes()
+            if len(parts) == 5 and parts[1:4] == ["api", "volumes"] and parts[4] == "delete":
+                return self._handle_volume_delete(parts[3])
             self._json({"error": "not found"}, 404)
         except Exception as e:
             self._err(e)
@@ -113,7 +140,7 @@ class DockerTunnelHandler(BaseHTTPRequestHandler):
     # ── Handlers ────────────────────────────────────────────────────
 
     def _handle_health(self):
-        self._json({"status": "ok", "version": "0.1.0"})
+        self._json({"status": "ok", "version": "0.2.0"})
 
     def _handle_containers(self):
         dc = self._docker()
@@ -232,133 +259,184 @@ class DockerTunnelHandler(BaseHTTPRequestHandler):
                 pass
         self._json({"success": True, "space_reclaimed": total, "space_human": fmt_size(total)})
 
-    def _handle_tunnels(self):
-        result = {"tunnels": []}
-        if not os.path.exists(CLOUDFLARED_CONFIG):
-            self._json({"tunnels": [], "error": "config not found"})
-            return
-        # Parse ingress
-        ingress = []
-        with open(CLOUDFLARED_CONFIG) as f:
-            in_ing = False
-            for line in f:
-                s = line.strip()
-                if s == "ingress:":
-                    in_ing = True
-                    continue
-                if in_ing:
-                    if s.startswith("- hostname:"):
-                        ingress.append({"hostname": s.split(":", 1)[-1].strip(), "service": "?"})
-                    elif s.startswith("service:") and ingress:
-                        ingress[-1]["service"] = s.split(":", 1)[-1].strip()
-                    elif not s.startswith("- ") and not s.startswith("  "):
-                        break
-        # Get tunnel info
+    # ── Volume Handlers ──────────────────────────────────────────────
+
+    def _handle_volumes(self):
+        dc = self._docker()
+        result = []
+        # map volume name -> list of container names using it
+        all_conts = dc.containers.list(all=True)
+        vol_users = {}
+        for c in all_conts:
+            mounts = c.attrs.get("Mounts", [])
+            for m in mounts:
+                if m.get("Type") == "volume":
+                    vname = m.get("Name", "")
+                    if vname:
+                        vol_users.setdefault(vname, []).append(c.name)
+        for vol in dc.volumes.list():
+            vname = vol.name
+            usage = vol.attrs.get("UsageData", {})
+            result.append({
+                "name": vname,
+                "driver": vol.attrs.get("Driver", "local"),
+                "mountpoint": vol.attrs.get("Mountpoint", ""),
+                "size_bytes": usage.get("Size", -1),
+                "size_human": fmt_size(usage.get("Size", 0)) if usage.get("Size", -1) >= 0 else "N/A",
+                "ref_count": usage.get("RefCount", 0),
+                "container_count": len(vol_users.get(vname, [])),
+                "containers": sorted(vol_users.get(vname, [])),
+                "created": vol.attrs.get("CreatedAt", ""),
+            })
+        self._json({"volumes": result, "count": len(result)})
+
+    def _handle_prune_volumes(self):
+        r = self._docker().volumes.prune()
+        self._json({
+            "volumes_pruned": len(r.get("VolumesDeleted", [])),
+            "space_reclaimed": r.get("SpaceReclaimed", 0),
+            "space_human": fmt_size(r.get("SpaceReclaimed", 0)),
+        })
+
+    def _handle_volume_delete(self, name):
         try:
-            r = subprocess.run(["cloudflared", "tunnel", "info", TUNNEL_NAME],
-                               capture_output=True, text=True, timeout=10)
-            info = {"name": TUNNEL_NAME, "id": "", "connectors": [], "ingress": ingress}
-            for line in r.stdout.splitlines():
-                line = line.strip()
-                if "ID:" in line and "CONNECTOR" not in line:
-                    info["id"] = line.split("ID:")[-1].strip()
-                elif line.startswith(" ") and len(line) > 40:
-                    parts = line.split()
-                    if len(parts) >= 6:
-                        info["connectors"].append({"id": parts[0], "age": parts[2], "origin": parts[-2]})
-            # Try to get connector count from tunnel list
-            try:
-                r2 = subprocess.run(["cloudflared", "tunnel", "list"],
-                                    capture_output=True, text=True, timeout=10)
-                m = re.search(r'(\d+)\s+connector', r2.stdout)
-                info["connector_count"] = int(m.group(1)) if m else len(info["connectors"])
-            except Exception:
-                info["connector_count"] = len(info["connectors"])
-            result["tunnels"].append(info)
+            vol = self._docker().volumes.get(name)
+            vol.remove()
+            self._json({"success": True, "volume": name})
+        except docker.errors.NotFound:
+            self._json({"error": f"volume '{name}' not found"}, 404)
         except Exception as e:
-            result["error"] = f"cloudflared failed: {e}"
-        self._json(result)
+            self._err(f"delete volume '{name}' failed: {e}")
+
+    # ── Compose Handler ─────────────────────────────────────────────
+
+    def _handle_compose(self):
+        try:
+            # discover compose projects via docker ps labels
+            r = subprocess.run(
+                ["docker", "ps", "--format", '{{.Label "com.docker.compose.project"}}', "--all"],
+                capture_output=True, text=True, timeout=10,
+            )
+            raw = r.stdout.strip()
+            if not raw:
+                return self._json({"projects": [], "count": 0})
+            # deduplicate project names
+            projects = list(dict.fromkeys(p for p in raw.splitlines() if p))
+            dc = self._docker()
+            result = []
+            for proj in projects:
+                conts = dc.containers.list(
+                    all=True,
+                    filters={"label": f"com.docker.compose.project={proj}"},
+                )
+                services = set()
+                running = 0
+                for c in conts:
+                    svc = c.labels.get("com.docker.compose.service", "")
+                    if svc:
+                        services.add(svc)
+                    if c.status == "running":
+                        running += 1
+                result.append({
+                    "project": proj,
+                    "container_count": len(conts),
+                    "running_count": running,
+                    "services": sorted(services),
+                })
+            self._json({"projects": result, "count": len(result)})
+        except Exception as e:
+            self._err(f"compose discovery failed: {e}")
+
+    # ── Image History Handler ────────────────────────────────────────
+
+    def _handle_image_history(self, image_id):
+        try:
+            img = self._docker().images.get(image_id)
+            history = img.history()
+            result = []
+            for layer in history:
+                created_by = layer.get("CreatedBy", "") or ""
+                result.append({
+                    "id": (layer.get("Id", "") or "")[:12],
+                    "size_bytes": layer.get("Size", 0),
+                    "size_human": fmt_size(layer.get("Size", 0)),
+                    "created_by": created_by[:80],
+                    "tags": layer.get("Tags", []) or [],
+                })
+            self._json({"history": result, "count": len(result)})
+        except docker.errors.ImageNotFound:
+            self._json({"error": f"image '{image_id}' not found"}, 404)
+        except Exception as e:
+            self._err(f"image history failed: {e}")
+
+    # ── Container Logs (SSE) Handler ────────────────────────────────
+
+    def _handle_container_logs(self, cid, tail=100, follow=True):
+        try:
+            container = self._docker().containers.get(cid)
+        except docker.errors.NotFound:
+            self._json({"error": f"container '{cid}' not found"}, 404)
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        # No CORS headers needed for SSE (browser EventSource handles it differently)
+        self.end_headers()
+
+        try:
+            log_gen = container.logs(stream=True, follow=follow, tail=tail, timestamps=False)
+            for chunk in log_gen:
+                if isinstance(chunk, bytes):
+                    chunk = chunk.decode("utf-8", errors="replace")
+                for line in chunk.splitlines():
+                    if line:
+                        # escape for JSON
+                        payload = json.dumps({"line": line})
+                        self.wfile.write(f"data: {payload}\n\n".encode())
+                        self.wfile.flush()
+                if not follow:
+                    continue
+            # send close event
+            self.wfile.write(b"event: close\ndata: {}\n\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # client disconnected — silent exit
+            pass
+        except Exception as e:
+            try:
+                payload = json.dumps({"error": f"log stream error: {e}"})
+                self.wfile.write(f"data: {payload}\n\n".encode())
+                self.wfile.flush()
+            except Exception:
+                pass
+
+    # ── Tunnels ──────────────────────────────────────────────────────
+
+    def _handle_tunnels(self):
+        tunnels = _tunnel_adapter.list_tunnels()
+        if not tunnels:
+            if not os.path.exists(CLOUDFLARED_CONFIG):
+                return self._json({"tunnels": [], "error": "config not found"})
+            return self._json({"tunnels": []})
+        self._json({"tunnels": tunnels})
 
     def _get_tunnel_info(self):
-        """Return parsed tunnel info dict (no HTTP)."""
-        result = {"tunnels": []}
-        if not os.path.exists(CLOUDFLARED_CONFIG):
-            return result
-        ingress = []
-        with open(CLOUDFLARED_CONFIG) as f:
-            in_ing = False
-            for line in f:
-                s = line.strip()
-                if s == "ingress:":
-                    in_ing = True
-                    continue
-                if in_ing:
-                    if s.startswith("- hostname:"):
-                        ingress.append({"hostname": s.split(":", 1)[-1].strip(), "service": "?"})
-                    elif s.startswith("service:") and ingress:
-                        ingress[-1]["service"] = s.split(":", 1)[-1].strip()
-                    elif not s.startswith("- ") and not s.startswith("  "):
-                        break
-        try:
-            r = subprocess.run(["cloudflared", "tunnel", "info", TUNNEL_NAME],
-                               capture_output=True, text=True, timeout=10)
-            info = {"name": TUNNEL_NAME, "id": "", "connectors": [], "ingress": ingress}
-            for line in r.stdout.splitlines():
-                line = line.strip()
-                if "ID:" in line and "CONNECTOR" not in line:
-                    info["id"] = line.split("ID:")[-1].strip()
-                elif line.startswith(" ") and len(line) > 40:
-                    parts = line.split()
-                    if len(parts) >= 6:
-                        info["connectors"].append({"id": parts[0], "age": parts[2], "origin": parts[-2]})
-            result["tunnels"].append(info)
-        except Exception:
-            pass
-        return result
+        """Return parsed tunnel info dict (no HTTP). Uses tunnel_adapter."""
+        tunnels = _tunnel_adapter.list_tunnels()
+        return {"tunnels": tunnels}
 
     def _handle_tunnel_health(self):
-        tun_info = self._get_tunnel_info()
-        routes = []
-        for tun in tun_info.get("tunnels", []):
-            for ing in tun.get("ingress", []):
-                hostname = ing.get("hostname", "")
-                url = f"https://{hostname}/"
-                start = time.time()
-                try:
-                    r = subprocess.run(
-                        ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                         "--connect-timeout", "5", "--max-time", "10", url],
-                        capture_output=True, text=True, timeout=12
-                    )
-                    latency = round(time.time() - start, 2)
-                    code = r.stdout.strip()
-                    status = "ok"
-                    if code in ("401", "403"):
-                        status = "authed"
-                    elif code in ("502", "503", "000", ""):
-                        status = "error"
-                    elif code in ("301", "302", "307", "308"):
-                        status = "redirect"
-                    routes.append({"hostname": hostname, "service": ing.get("service", ""),
-                                   "status": status, "http_code": code, "latency": latency})
-                except subprocess.TimeoutExpired:
-                    routes.append({"hostname": hostname, "service": ing.get("service", ""),
-                                   "status": "timeout", "http_code": "", "latency": 10.0})
-                except Exception:
-                    routes.append({"hostname": hostname, "service": ing.get("service", ""),
-                                   "status": "error", "http_code": "", "latency": 0})
+        routes = _tunnel_adapter.tunnel_health(TUNNEL_NAME)
         self._json({"routes": routes, "checked_at": time.strftime("%H:%M:%S")})
 
     def _handle_tunnel_logs(self, lines=50):
-        try:
-            r = subprocess.run(
-                ["journalctl", "--user", "-u", "gto-wizard-tunnel.service",
-                 "--no-pager", "-n", str(lines)],
-                capture_output=True, text=True, timeout=10
-            )
-            self._json({"logs": r.stdout, "lines": len(r.stdout.splitlines())})
-        except Exception as e:
-            self._err(f"journalctl failed: {e}")
+        logs = _tunnel_adapter.tunnel_logs(TUNNEL_NAME, lines=lines)
+        if logs.startswith("journalctl failed:"):
+            self._err(logs)
+        else:
+            self._json({"logs": logs, "lines": len(logs.splitlines())})
 
     def log_message(self, format, *args):
         pass
