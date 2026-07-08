@@ -347,6 +347,8 @@
 
       // Position and scale
       _vrmScene.position.set(0, -0.3, 0);
+      // Rotate 180° around Y: glTF +Z forward → faces camera at +Z
+      _vrmScene.rotation.y = Math.PI;
       var box = new THREE.Box3().setFromObject(_vrmScene);
       var size = new THREE.Vector3();
       box.getSize(size);
