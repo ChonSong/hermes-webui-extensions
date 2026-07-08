@@ -438,9 +438,30 @@
           if (!clip) { clip = fbx.animations[0]; }
           if (!clip) { resolve(); return; }
 
-          // Use the raw FBX clip directly — both model and animation use Mixamo rig.
-          // No bone retargeting needed since bone names already match.
-          var tracks = clip.tracks.slice();
+          // Bone names from the FBX use 'mixamorigHips' (no colon).
+          // The VRM scene uses 'mixamorig:Hips' (with colon).
+          // Rename tracks to match the scene's node names via the VRM humanoid.
+          var tracks = [];
+          clip.tracks.forEach(function(track) {
+            var splitted = track.name.split('.');
+            var mixamoName = splitted[0];
+            var prop = splitted[1];
+            var vrmBoneName = mixamoVRMRigMap[mixamoName];
+            if (!vrmBoneName) return;
+            var vrmNode = self.vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
+            var vrmNodeName = vrmNode ? vrmNode.name : null;
+            if (!vrmNodeName) return;
+
+            if (track instanceof THREE.QuaternionKeyframeTrack) {
+              tracks.push(new THREE.QuaternionKeyframeTrack(
+                vrmNodeName + '.' + prop, track.times, track.values.slice()
+              ));
+            } else if (track instanceof THREE.VectorKeyframeTrack) {
+              tracks.push(new THREE.VectorKeyframeTrack(
+                vrmNodeName + '.' + prop, track.times, track.values.slice()
+              ));
+            }
+          });
 
           if (tracks.length === 0) { resolve(); return; }
           var retargetedClip = new THREE.AnimationClip('anim_' + name, clip.duration, tracks);
