@@ -316,6 +316,57 @@
     const isConnected = state === STATE.CONNECTED;
     talkBtn.disabled = !isConnected;
     reconnectBtn.classList.toggle('hwx-fac-show', state === STATE.ERROR || state === STATE.DISCONNECTED);
+
+    // Broadcast connection-derived voice state to other extensions.
+    // connected = ready/listening, otherwise idle (no active voice).
+    emitVoiceState(isConnected ? 'listening' : 'idle');
+  }
+
+  // ── Cross-extension event bus (CustomEvents) ─────────────────────────
+  // Other extensions (e.g. emotion-avatar PR #56) react to voice state and
+  // emotion without tight coupling. See the emotion-avatar event contract.
+  function emitEvent(name, detail) {
+    try {
+      window.dispatchEvent(new CustomEvent(name, { detail: detail }));
+    } catch (_) { /* dispatch is non-throwing; stay defensive */ }
+  }
+
+  // Genuine voice-state signals derived from connection / recording state.
+  function emitVoiceState(state) {
+    emitEvent('hermes:voice:state', { state: state, timestamp: Date.now() });
+  }
+
+  // Lightweight client-side emotion inference from the ASR transcript.
+  // NOTE: the FAC server currently does not emit a structured emotion field,
+  // so this is a best-effort local heuristic. Swap for server emotion frames
+  // (e.g. a new binary type) when the protocol supports them.
+  const FAC_EMOTION_LEXICON = {
+    happy:     /\b(haha|lol|great|awesome|love|thanks|thank you|wonderful|excited|nice|cool|😊|😄|❤️)\b/i,
+    sad:       /\b(sad|sorry|unfortunately|fail|failed|error|broken|miss|lost|😢|😞)\b/i,
+    angry:     /\b(stop|wrong|hate|angry|stupid|broken|wtf|damn|😠|😡)\b/i,
+    surprised: /\b(wow|whoa|omg|really|no way|unexpected|wait what|😮|😲)\b/i,
+    confused:  /\b(what|huh|confused|don't understand|unclear|weird)\b/i,
+  };
+  function inferEmotionFromText(text) {
+    if (!text || typeof text !== 'string') return null;
+    for (const emotion in FAC_EMOTION_LEXICON) {
+      if (FAC_EMOTION_LEXICON[emotion].test(text)) {
+        return { emotion: emotion, confidence: 0.6, source: 'transcript-heuristic' };
+      }
+    }
+    return null;
+  }
+  function emitEmotionFromText(text) {
+    const e = inferEmotionFromText(text);
+    if (e) {
+      addLog(`Emotion (local): ${e.emotion}`, 'system');
+      emitEvent('hermes:fac:emotion', {
+        emotion: e.emotion,
+        confidence: e.confidence,
+        source: e.source,
+        timestamp: Date.now(),
+      });
+    }
   }
 
   function addLog(text, type) {
@@ -515,6 +566,7 @@
       // Text messages typically contain transcription results
       if (json.text) {
         addLog(`You: ${json.text}`, 'user');
+        emitEmotionFromText(json.text); // best-effort local emotion inference
       } else {
         addLog(`Server: ${text}`, 'agent');
       }
@@ -660,6 +712,7 @@
     isRecording = true;
     talkBtn.textContent = '⏹  Stop';
     talkBtn.classList.add('hwx-fac-recording');
+    emitVoiceState('listening'); // user is capturing audio
   }
 
   function stopRecording() {
@@ -691,6 +744,7 @@
       sendFrame(FAC_TYPE.CONTROL, JSON.stringify({ type: 'end_turn', text: '' }));
     }
 
+    emitVoiceState('idle'); // turn ended, back to idle
     addLog('Recording stopped', 'system');
   }
 
@@ -758,6 +812,11 @@
     init();
   }
 
-  // Expose connect/disconnect for debugging
-  window.__facConnector = { connect, disconnect, getState: () => connectionState };
+  // Expose connect/disconnect for debugging + manual event injection for tests
+  window.__facConnector = {
+    connect, disconnect,
+    getState: () => connectionState,
+    emitEmotion: emitEmotionFromText,
+    emitVoice: emitVoiceState,
+  };
 })();
