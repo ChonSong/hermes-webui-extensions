@@ -16,6 +16,7 @@
         "assets/renderers/live2d.js",
         "assets/renderers/spine.js",
         "assets/renderers/model-manager.js",
+        "assets/renderers/vrm.js",
         "assets/emotion-avatar.js"
       ],
       "stylesheets": [

@@ -27,6 +27,7 @@
     { id: '__preset__yuki',    name: 'Yuki',    type: 'preset' },
     { id: '__preset__robot',   name: 'Robot',   type: 'preset' },
     { id: '__preset__monster', name: 'Monster', type: 'preset' },
+    { id: '__preset__coolbanana', name: 'Cool Banana', type: 'vrm', url: 'assets/models/CoolBanana.vrm' },
   ];
 
   function getAll() {

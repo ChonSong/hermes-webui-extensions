@@ -50,6 +50,7 @@
       case 'preset': renderer = __ea.renderer.canvas2d; break;
       case 'live2d': renderer = __ea.renderer.live2d; break;
       case 'spine': renderer = __ea.renderer.spine; break;
+      case 'vrm': renderer = __ea.renderer.vrm; break;
       default: renderer = __ea.renderer.canvas2d;
     }
     if (!renderer) renderer = __ea.renderer.canvas2d;
