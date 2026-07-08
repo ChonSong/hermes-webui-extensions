@@ -46,6 +46,40 @@
     { re: /^(?:help|what can I say)\s*$/i,  action: 'help' },
   ];
 
+  // ── Cross-extension event bus (CustomEvents) ──
+  // Sibling extensions (emotion-avatar #56, fun-audio-chat-connector #53) are
+  // decoupled: we only exchange window CustomEvents — never shared globals or
+  // direct function calls. See the emotion-avatar event contract.
+  function emitEvent(name, detail) {
+    try { window.dispatchEvent(new CustomEvent(name, { detail: detail })); }
+    catch (_) { /* dispatch is non-throwing; stay defensive */ }
+  }
+
+  // Read-only mirror of avatar expression (drives our status title).
+  function onAvatarExpression(e) {
+    const expr = e && e.detail && e.detail.expression;
+    if (!expr) return;
+    const badge = document.getElementById('orch-status');
+    if (badge) badge.title = 'Avatar: ' + expr;
+  }
+
+  // Mirror voice activity so our status can reflect it.
+  function onVoiceState(e) {
+    const st = e && e.detail && e.detail.state;
+    if (!st) return;
+    const badge = document.getElementById('orch-status');
+    if (badge) badge.dataset.voice = st;
+  }
+
+  function registerEvents() {
+    window.addEventListener('hermes:avatar:expression', onAvatarExpression);
+    window.addEventListener('hermes:voice:state', onVoiceState);
+  }
+  function unregisterEvents() {
+    window.removeEventListener('hermes:avatar:expression', onAvatarExpression);
+    window.removeEventListener('hermes:voice:state', onVoiceState);
+  }
+
   // ── State ──
   const O = {
     // alias → { sid, session_id, createdAt }
@@ -180,6 +214,13 @@
           O.activeAlias = entry.name;
           speakText('Switched to session ' + name);
         }
+        // Broadcast the switch so sibling extensions (e.g. avatar → thinking) react.
+        emitEvent('hermes:agent:state', {
+          action: 'switchSession',
+          activeAlias: O.activeAlias,
+          expression: 'thinking',
+          timestamp: Date.now(),
+        });
         // Update tile focus if tiling extension is active
         if (typeof window.focusTileExt === 'function') {
           window.focusTileExt(entry.sid);
@@ -498,6 +539,15 @@
       }
     }
     speakText('Response ready in session ' + alias);
+
+    // Broadcast completion so sibling extensions can clear their state.
+    emitEvent('hermes:agent:state', {
+      action: 'sessionComplete',
+      alias: alias,
+      sid: sid,
+      expression: 'idle',
+      timestamp: Date.now(),
+    });
   }
 
   // ── State Persistence ──
@@ -549,6 +599,7 @@
       hijackVoiceSend();
       wireNotifications();
       loadState();
+      registerEvents(); // wire cross-extension listeners
       // Re-apply badges for known sessions
       Object.keys(O.aliases).forEach(k => updateBadge(k, 'active'));
       speakText('Session Orchestrator enabled.');
@@ -558,6 +609,7 @@
         window._origVoiceModeSendRestore();
       }
       if (O._busyWatch) { clearInterval(O._busyWatch); O._busyWatch = null; }
+      unregisterEvents(); // detach cross-extension listeners
       // Restore original _handleBgTaskCompleteEvent
       if (O._origHandleBg && typeof window._handleBgTaskCompleteEvent !== 'undefined') {
         window._handleBgTaskCompleteEvent = O._origHandleBg;
