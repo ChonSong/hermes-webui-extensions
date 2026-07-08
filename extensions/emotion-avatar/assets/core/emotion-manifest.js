@@ -8,7 +8,7 @@
   __ea._emotionManifestLoaded = true;
 
   // Base path for animation files (relative to extension root, resolved by renderer)
-  var OSAGAL_BASE = 'https://raw.githubusercontent.com/ToxSam/osa-gallery/main/public/animations/';
+  var OSAGAL_BASE = 'https://cdn.jsdelivr.net/gh/ToxSam/osa-gallery@main/public/animations/';
 
   // Each emotion defines:
   //   blends:  {presetName: weight}  — VRM expression preset weights (string names)

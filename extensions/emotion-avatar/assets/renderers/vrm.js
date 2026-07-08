@@ -391,7 +391,7 @@
     speaking:  'idle',
   };
 
-  var ANIM_BASE_URL = 'https://raw.githubusercontent.com/ToxSam/osa-gallery/main/public/animations/';
+  var ANIM_BASE_URL = 'https://cdn.jsdelivr.net/gh/ToxSam/osa-gallery@main/public/animations/';
 
   // ── AnimManager constructor ────────────────────────────────────────
   function AnimManager(THREE, root, vrm, extUrl) {
