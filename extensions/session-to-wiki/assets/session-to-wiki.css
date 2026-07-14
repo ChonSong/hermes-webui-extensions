@@ -1,0 +1,98 @@
+.stw-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.stw-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 400px;
+  max-width: calc(100% - 48px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.stw-body {
+  margin-bottom: 16px;
+}
+
+.stw-title {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stw-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin: 12px 0 6px 0;
+  color: var(--text-muted);
+}
+
+.stw-input,
+.stw-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.stw-input:focus,
+.stw-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 80, 140, 255), 0.15);
+}
+
+.stw-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.stw-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-button);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.stw-btn:hover {
+  background: var(--bg-hover);
+}
+
+.stw-btn.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.stw-btn.primary:hover {
+  filter: brightness(1.1);
+}
+
+.stw-btn.primary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.stw-msg {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}

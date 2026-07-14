@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "session-to-wiki",
+      "name": "Session to Wiki",
+      "description": "Save Hermes sessions as wiki pages. Adds 'Add to Wiki' to session menus and Ctrl+Shift+W shortcut.",
+      "scripts": [
+        "assets/session-to-wiki.js"
+      ],
+      "stylesheets": [
+        "assets/session-to-wiki.css"
+      ]
+    }
+  ]
+}

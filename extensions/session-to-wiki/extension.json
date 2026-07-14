@@ -1,0 +1,52 @@
+{
+  "id": "session-to-wiki",
+  "name": "Session to Wiki",
+  "description": "Save Hermes sessions as wiki pages. Adds an 'Add to Wiki' button to session menus and Ctrl+Shortcut to save the current conversation as a markdown page.",
+  "version": "0.1.0",
+  "author": "ChonSong",
+  "assets": {
+    "scripts": [
+      "assets/session-to-wiki.js"
+    ],
+    "stylesheets": [
+      "assets/session-to-wiki.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "session_id",
+        "session_title"
+      ],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+      },
+    "network_external": false,
+    "uses_clipboard": false,
+    "uses_print": false
+  }
+}
