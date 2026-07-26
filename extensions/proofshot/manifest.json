@@ -1,0 +1,19 @@
+{
+  "extensions": [
+    {
+      "id": "proofshot",
+      "name": "ProofShot",
+      "description": "Visual regression verification panel — start/stop recording, view artifact sessions, and review proof reports.",
+      "scripts": ["assets/proofshot.js"],
+      "stylesheets": ["assets/proofshot.css"],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17990",
+        "health_path": "/health"
+      },
+      "permissions": {
+        "storage": { "owned": true }
+      }
+    }
+  ]
+}

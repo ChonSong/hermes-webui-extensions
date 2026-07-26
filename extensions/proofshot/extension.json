@@ -1,0 +1,43 @@
+{
+  "id": "proofshot",
+  "name": "ProofShot",
+  "description": "Visual regression verification panel — start/stop recording sessions, view artifact timelines, and review proof reports with video, screenshots, and error logs from your workspace.",
+  "version": "0.1.0",
+  "author": "AmElmo contributors",
+  "assets": {
+    "scripts": ["assets/proofshot.js"],
+    "stylesheets": ["assets/proofshot.css"]
+  },
+  "capabilities": ["manifest-bundle", "loopback-sidecar"],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17990",
+    "health_path": "/health",
+    "proxy": {
+      "available": true,
+      "consent_required": false
+    }
+  },
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "post_install": {
+    "summary": "Start the sidecar to enable proofshot session start/stop from the WebUI.",
+    "requires_local_app": true,
+    "local_app_label": "ProofShot sidecar (port 17990)"
+  },
+  "permissions": {
+    "webui_api": { "read": [], "write": [] },
+    "webui_navigation": false,
+    "dom": { "owned": true, "mutates_core_views": false },
+    "storage": { "owned": true, "shared_webui_keys": [] },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
+    "network_external": false
+  }
+}
