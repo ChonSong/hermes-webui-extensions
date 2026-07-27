@@ -31,6 +31,7 @@
 
   let overlayOpen = false;
   let selectedAppId = null;
+  let managerOpen = false;
 
   // ── Data model ──────────────────────────────────────────────────────────
   // v1 (legacy): { url, label }
@@ -160,24 +161,29 @@
     if (!rail) return 0;
 
     const cfg = loadCfg();
+    const spacer = rail.querySelector('.rail-spacer');
     const existing = rail.querySelectorAll('[data-hwx-extapp="1"]');
     const validIds = new Set();
 
-    // Add/update one button per app
+    // Ensure one button per app in cfg order
     cfg.apps.forEach((app) => {
       validIds.add(app.id);
       const btnId = RAIL_BTN_PREFIX + '-' + app.id;
       let btn = document.getElementById(btnId);
+
       if (!btn) {
         btn = createRailButton(app);
         btn.id = btnId;
         btn.dataset.appId = app.id;
-        const spacer = rail.querySelector('.rail-spacer');
-        if (spacer) rail.insertBefore(btn, spacer);
-        else rail.appendChild(btn);
       }
+
+      // Update tooltip/label in case they changed
       btn.dataset.tooltip = app.label;
       btn.setAttribute('aria-label', app.label);
+
+      // Move into position (reorder)
+      if (spacer) rail.insertBefore(btn, spacer);
+      else rail.appendChild(btn);
     });
 
     // Remove stale buttons (apps that no longer exist)
@@ -193,7 +199,6 @@
       let defaultBtn = document.getElementById(RAIL_BTN_PREFIX);
       if (!defaultBtn) {
         defaultBtn = createRailButton(null);
-        const spacer = rail.querySelector('.rail-spacer');
         if (spacer) rail.insertBefore(defaultBtn, spacer);
         else rail.appendChild(defaultBtn);
       }
@@ -219,6 +224,7 @@
       '<div class="hwx-extapp-bar">' +
         '<span class="hwx-extapp-title"></span>' +
         '<span class="hwx-extapp-spacer"></span>' +
+        '<button type="button" class="hwx-extapp-btn hwx-extapp-manage" title="Manage apps" aria-label="Manage apps">Manage</button>' +
         '<button type="button" class="hwx-extapp-btn hwx-extapp-add" title="Add app" aria-label="Add app">+</button>' +
         '<button type="button" class="hwx-extapp-btn hwx-extapp-config" title="Configure">Configure</button>' +
         '<button type="button" class="hwx-extapp-btn hwx-extapp-open" title="Open in new tab">Open ↗</button>' +
@@ -229,6 +235,7 @@
     ov.querySelector('.hwx-extapp-close').addEventListener('click', () => closeOverlay());
     ov.querySelector('.hwx-extapp-config').addEventListener('click', () => openConfig());
     ov.querySelector('.hwx-extapp-add').addEventListener('click', () => openConfig(true));
+    ov.querySelector('.hwx-extapp-manage').addEventListener('click', () => openManager());
     ov.querySelector('.hwx-extapp-open').addEventListener('click', () => {
       const app = selectedApp();
       if (app && validUrl(app.url)) window.open(app.url, '_blank', 'noopener');
@@ -273,6 +280,7 @@
 
   function openOverlay(appId) {
     if (appId) selectedAppId = appId;
+    managerOpen = false;
     renderOverlayContent();
     const ov = document.getElementById(OVERLAY_ID);
     if (!ov) return;
@@ -297,6 +305,140 @@
   }
 
   function escClose(ev) { if (ev.key === 'Escape') closeOverlay(); }
+
+  // ── app manager (list / reorder / manage) ───────────────────────────────
+
+  function openManager() {
+    managerOpen = true;
+    renderManagerView();
+  }
+
+  function closeManager() {
+    managerOpen = false;
+    renderOverlayContent();
+  }
+
+  function renderManagerView() {
+    const ov = buildOverlay();
+    ov.querySelector('.hwx-extapp-title').textContent = 'Manage Apps';
+    const body = ov.querySelector('.hwx-extapp-body');
+    body.innerHTML = '';
+
+    const cfg = loadCfg();
+    if (cfg.apps.length === 0) {
+      body.innerHTML = '<div class="hwx-extapp-empty"><p>No apps configured.</p></div>';
+      return;
+    }
+
+    const list = document.createElement('div');
+    list.className = 'hwx-extapp-mgr-list';
+
+    cfg.apps.forEach((app, i) => {
+      const row = document.createElement('div');
+      row.className = 'hwx-extapp-mgr-row';
+      row.dataset.appId = app.id;
+
+      const order = document.createElement('span');
+      order.className = 'hwx-extapp-mgr-order';
+      order.textContent = '#' + (i + 1);
+      row.appendChild(order);
+
+      const lbl = document.createElement('span');
+      lbl.className = 'hwx-extapp-mgr-label';
+      lbl.textContent = app.label;
+      lbl.title = app.label;
+      row.appendChild(lbl);
+
+      const url = document.createElement('span');
+      url.className = 'hwx-extapp-mgr-url';
+      url.textContent = app.url || '(no URL)';
+      url.title = app.url;
+      row.appendChild(url);
+
+      const actions = document.createElement('div');
+      actions.className = 'hwx-extapp-mgr-actions';
+
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'hwx-extapp-btn';
+      openBtn.textContent = 'Open';
+      openBtn.addEventListener('click', () => {
+        closeManager();
+        selectedAppId = app.id;
+        openOverlay();
+      });
+      actions.appendChild(openBtn);
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'hwx-extapp-btn';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => {
+        selectedAppId = app.id;
+        openConfig();
+      });
+      actions.appendChild(editBtn);
+
+      if (i > 0) {
+        const upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'hwx-extapp-btn hwx-extapp-mgr-up';
+        upBtn.title = 'Move up';
+        upBtn.textContent = '↑';
+        upBtn.addEventListener('click', () => {
+          moveApp(app.id, -1);
+          renderManagerView();
+        });
+        actions.appendChild(upBtn);
+      }
+
+      if (i < cfg.apps.length - 1) {
+        const downBtn = document.createElement('button');
+        downBtn.type = 'button';
+        downBtn.className = 'hwx-extapp-btn hwx-extapp-mgr-down';
+        downBtn.title = 'Move down';
+        downBtn.textContent = '↓';
+        downBtn.addEventListener('click', () => {
+          moveApp(app.id, 1);
+          renderManagerView();
+        });
+        actions.appendChild(downBtn);
+      }
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'hwx-extapp-btn hwx-extapp-mgr-del';
+      delBtn.title = 'Delete';
+      delBtn.textContent = '✕';
+      delBtn.addEventListener('click', () => {
+        const cfg2 = loadCfg();
+        cfg2.apps = cfg2.apps.filter(a => a.id !== app.id);
+        if (selectedAppId === app.id) selectedAppId = null;
+        saveCfg(cfg2.apps);
+        syncRailButtons();
+        renderManagerView();
+      });
+      actions.appendChild(delBtn);
+
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+
+    body.appendChild(list);
+  }
+
+  function moveApp(appId, direction) {
+    const cfg = loadCfg();
+    const idx = cfg.apps.findIndex(a => a.id === appId);
+    if (idx === -1) return;
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= cfg.apps.length) return;
+    const tmp = cfg.apps[newIdx];
+    cfg.apps[newIdx] = cfg.apps[idx];
+    cfg.apps[idx] = tmp;
+    saveCfg(cfg.apps);
+    syncRailButtons();
+  }
 
   // ── config dialog ───────────────────────────────────────────────────────
 
