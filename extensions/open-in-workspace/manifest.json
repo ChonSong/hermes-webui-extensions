@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "open-in-workspace",
+      "name": "Open in Workspace",
+      "description": "Adds an 'Open in workspace' button to read_file tool cards, plus numbered file-change chips on assistant message footers.",
+      "scripts": [
+        "open-in-workspace.js"
+      ],
+      "stylesheets": []
+    }
+  ]
+}
