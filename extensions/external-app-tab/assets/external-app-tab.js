@@ -117,10 +117,15 @@
   // One button per configured app. If no apps exist, a single default "App"
   // button shows the empty-state overlay with a Configure CTA.
 
-  function railIcon() {
+  function railIcon(app) {
+    // Use configured icon if available and li() is ready
+    if (app && app.icon && typeof li === 'function') {
+      const svg = li(app.icon, 20);
+      if (svg) return svg;
+    }
     return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
       'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/>' +
+      '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M 3 9h18"/>' +
       '<path d="M15 21V9"/></svg>';
   }
 
@@ -134,7 +139,7 @@
     btn.id = app ? RAIL_BTN_PREFIX + '-' + app.id : RAIL_BTN_PREFIX;
     btn.dataset.appId = app ? app.id : '';
     btn.dataset.hwxExtapp = '1';                       /* marker for our own buttons */
-    btn.innerHTML = railIcon();
+    btn.innerHTML = railIcon(app);
     btn.addEventListener('click', (ev) => {
       ev.preventDefault();
       const targetId = app ? app.id : null;
@@ -177,9 +182,10 @@
         btn.dataset.appId = app.id;
       }
 
-      // Update tooltip/label in case they changed
+      // Update tooltip/label/icon in case they changed
       btn.dataset.tooltip = app.label;
       btn.setAttribute('aria-label', app.label);
+      btn.innerHTML = railIcon(app);
 
       // Move into position (reorder)
       if (spacer) rail.insertBefore(btn, spacer);
@@ -440,7 +446,74 @@
     syncRailButtons();
   }
 
-  // ── config dialog ───────────────────────────────────────────────────────
+  // ── icon picker (searchable grid of all LI_PATHS icons) ──────────────────
+
+  let iconPickerCallback = null;
+
+  function iconPickerEsc(e) {
+    if (e.key === 'Escape') closeIconPicker();
+  }
+
+  function openIconPicker(currentIcon, callback) {
+    iconPickerCallback = callback;
+    let picker = document.getElementById('hwxExtAppIconPicker');
+    if (picker) picker.remove();
+    picker = document.createElement('div');
+    picker.id = 'hwxExtAppIconPicker';
+    picker.className = 'hwx-extapp-picker-overlay';
+    const iconKeys = Object.keys(LI_PATHS);
+    picker.innerHTML =
+      '<div class="hwx-extapp-picker-card" role="dialog" aria-label="Choose an icon">' +
+        '<div class="hwx-extapp-picker-header">' +
+          '<span class="hwx-extapp-picker-title">Choose icon</span>' +
+          '<button type="button" class="hwx-extapp-btn hwx-extapp-picker-close" aria-label="Cancel">✕</button>' +
+        '</div>' +
+        '<div class="hwx-extapp-picker-search-wrap">' +
+          '<input type="text" class="hwx-extapp-picker-search" placeholder="Filter icons…" autofocus>' +
+        '</div>' +
+        '<div class="hwx-extapp-picker-grid"></div>' +
+      '</div>';
+    document.body.appendChild(picker);
+    const grid = picker.querySelector('.hwx-extapp-picker-grid');
+    renderPickerGrid(grid, iconKeys, currentIcon);
+    const searchInput = picker.querySelector('.hwx-extapp-picker-search');
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase();
+      renderPickerGrid(grid, iconKeys.filter(n => n.includes(q)), currentIcon);
+    });
+    picker.querySelector('.hwx-extapp-picker-close').addEventListener('click', closeIconPicker);
+    picker.addEventListener('click', (e) => { if (e.target === picker) closeIconPicker(); });
+    document.addEventListener('keydown', iconPickerEsc, true);
+    setTimeout(() => searchInput.focus(), 100);
+  }
+
+  function renderPickerGrid(grid, iconKeys, currentIcon) {
+    grid.innerHTML = '';
+    iconKeys.forEach((name) => {
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'hwx-extapp-picker-cell' + (name === currentIcon ? ' selected' : '');
+      cell.title = name;
+      cell.innerHTML = li(name, 28) + '<span class="hwx-extapp-picker-name">' + name + '</span>';
+      cell.addEventListener('click', () => {
+        if (iconPickerCallback) iconPickerCallback(name);
+        closeIconPicker();
+      });
+      grid.appendChild(cell);
+    });
+    if (iconKeys.length === 0) {
+      grid.innerHTML = '<div class="hwx-extapp-picker-empty">No matching icons</div>';
+    }
+  }
+
+  function closeIconPicker() {
+    const picker = document.getElementById('hwxExtAppIconPicker');
+    if (picker) picker.remove();
+    iconPickerCallback = null;
+    document.removeEventListener('keydown', iconPickerEsc, true);
+  }
+ 
+   // ── config dialog ───────────────────────────────────────────────────────
 
   function openConfig(addNew) {
     const app = addNew ? null : selectedApp();
@@ -449,11 +522,22 @@
     dlg = document.createElement('div');
     dlg.id = 'hwxExtAppConfig';
     dlg.className = 'hwx-extapp-config-dlg';
+    let selectedIcon = app ? (app.icon || '') : '';
     dlg.innerHTML =
       '<div class="hwx-extapp-config-card" role="dialog" aria-label="Configure external app">' +
         '<div class="hwx-extapp-config-title">' + (app ? 'Edit app' : 'Add app') + '</div>' +
         '<label class="hwx-extapp-field"><span>Label</span>' +
           '<input type="text" class="hwx-extapp-input hwx-extapp-label-in" maxlength="24" placeholder="App"></label>' +
+        '<div class="hwx-extapp-field hwx-extapp-icon-field">' +
+          '<span>Icon</span>' +
+          '<div class="hwx-extapp-icon-row">' +
+            '<span class="hwx-extapp-icon-preview' + (selectedIcon ? ' has-icon' : '') + '">' +
+              (selectedIcon && typeof li === 'function' ? li(selectedIcon, 24) : '') +
+            '</span>' +
+            '<button type="button" class="hwx-extapp-btn hwx-extapp-icon-choose">Choose</button>' +
+            '<button type="button" class="hwx-extapp-btn hwx-extapp-icon-clear" style="display:' + (selectedIcon ? '' : 'none') + '">Remove</button>' +
+          '</div>' +
+        '</div>' +
         '<label class="hwx-extapp-field"><span>URL (http/https)</span>' +
           '<input type="url" class="hwx-extapp-input hwx-extapp-url-in" placeholder="https://app.example.com"></label>' +
         '<div class="hwx-extapp-config-note">To frame an external origin, the operator must allow it via ' +
@@ -474,6 +558,28 @@
     urlIn.value = app ? app.url : '';
     // Hide delete button if we're adding (no existing app)
     if (!app) deleteBtn.style.display = 'none';
+
+    // Icon picker wiring
+    const iconPreview = dlg.querySelector('.hwx-extapp-icon-preview');
+    const iconChoose = dlg.querySelector('.hwx-extapp-icon-choose');
+    const iconClear = dlg.querySelector('.hwx-extapp-icon-clear');
+
+    function updateIconDisplay() {
+      iconPreview.innerHTML = selectedIcon && typeof li === 'function' ? li(selectedIcon, 24) : '';
+      iconPreview.className = 'hwx-extapp-icon-preview' + (selectedIcon ? ' has-icon' : '');
+      iconClear.style.display = selectedIcon ? '' : 'none';
+    }
+
+    iconChoose.addEventListener('click', () => {
+      openIconPicker(selectedIcon, (name) => {
+        selectedIcon = name;
+        updateIconDisplay();
+      });
+    });
+    iconClear.addEventListener('click', () => {
+      selectedIcon = '';
+      updateIconDisplay();
+    });
 
     const close = () => dlg.remove();
     dlg.querySelector('.hwx-extapp-cancel').addEventListener('click', close);
@@ -504,11 +610,11 @@
       const cfg = loadCfg();
       if (app && cfg.apps.some(a => a.id === app.id)) {
         // Edit existing app
-        cfg.apps = cfg.apps.map(a => a.id === app.id ? { ...a, url, label } : a);
+        cfg.apps = cfg.apps.map(a => a.id === app.id ? { ...a, url, label, icon: selectedIcon } : a);
         selectedAppId = app.id;
       } else {
         // Add new app
-        const newApp = { id: uid(), url, label, icon: '' };
+        const newApp = { id: uid(), url, label, icon: selectedIcon };
         cfg.apps.push(newApp);
         selectedAppId = newApp.id;
       }
@@ -528,7 +634,7 @@
     if (document.querySelector('.rail')) {
       syncRailButtons();
       window.HermesExternalAppTabExtension = {
-        version: '0.3.0',
+        version: '0.5.0',
         getConfig: loadCfg,
         setConfig(url, label) {
           if (url && !validUrl(url)) return false;
