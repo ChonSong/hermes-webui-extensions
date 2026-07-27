@@ -262,7 +262,7 @@
       empty.innerHTML =
         '<p>No app configured yet.</p>' +
         '<p class="hwx-extapp-muted">Set a URL to embed a compatible self-hosted web app as a tab.</p>' +
-        '<button type="button" class="hwx-extapp-btn hwx-extapp-config-cta">Configure…</button>';
+        '<button type="button" class="hwx-extapp-btn hwx-extapp-btn-primary hwx-extapp-config-cta">Configure…</button>';
       empty.querySelector('.hwx-extapp-config-cta').addEventListener('click', () => openConfig());
       body.appendChild(empty);
       return;
@@ -544,9 +544,9 @@
           '<code>HERMES_WEBUI_CSP_FRAME_EXTRA</code>. Same-origin / loopback URLs work without it.</div>' +
         '<div class="hwx-extapp-config-err" hidden></div>' +
         '<div class="hwx-extapp-config-actions">' +
-          '<button type="button" class="hwx-extapp-btn hwx-extapp-delete" style="margin-right:auto;color:var(--danger,#e5534b)">Delete</button>' +
-          '<button type="button" class="hwx-extapp-btn hwx-extapp-cancel">Cancel</button>' +
-          '<button type="button" class="hwx-extapp-btn hwx-extapp-save">Save</button>' +
+          '<button type="button" class="hwx-extapp-btn hwx-extapp-btn-danger hwx-extapp-delete" style="margin-right:auto">Delete</button>' +
+          '<button type="button" class="hwx-extapp-btn hwx-extapp-btn-ghost hwx-extapp-cancel">Cancel</button>' +
+          '<button type="button" class="hwx-extapp-btn hwx-extapp-btn-primary hwx-extapp-save">Save</button>' +
         '</div>' +
       '</div>';
     document.body.appendChild(dlg);
