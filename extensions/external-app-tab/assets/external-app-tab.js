@@ -26,10 +26,11 @@
   window.__hermesExternalAppTabLoaded = true;
 
   const CFG_KEY = 'hermes-ext-external-app';
-  const RAIL_BTN_ID = 'hwxExtAppRailBtn';
+  const RAIL_BTN_PREFIX = 'hwxExtAppRailBtn';
   const OVERLAY_ID = 'hwxExtAppOverlay';
 
   let overlayOpen = false;
+  let selectedAppId = null;
 
   // ── Data model ──────────────────────────────────────────────────────────
   // v1 (legacy): { url, label }
@@ -92,19 +93,28 @@
   function escapeHtml(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function originOf(u) {
     try { return new URL(u).origin; } catch (_) { return u; }
   }
 
-  function currentApp() {
+  // ── app lookup ──────────────────────────────────────────────────────────
+
+  function getApp(id) {
+    if (!id) return null;
     const cfg = loadCfg();
-    return cfg.apps && cfg.apps.length > 0 ? cfg.apps[0] : null;
+    return cfg.apps.find(a => a.id === id) || null;
   }
 
-  // ── rail button ─────────────────────────────────────────────────────────
+  function selectedApp() {
+    return getApp(selectedAppId) || (loadCfg().apps[0] || null);
+  }
+
+  // ── rail buttons ────────────────────────────────────────────────────────
+  // One button per configured app. If no apps exist, a single default "App"
+  // button shows the empty-state overlay with a Configure CTA.
 
   function railIcon() {
     return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
@@ -113,26 +123,87 @@
       '<path d="M15 21V9"/></svg>';
   }
 
-  function ensureRailButton() {
-    if (document.getElementById(RAIL_BTN_ID)) return document.getElementById(RAIL_BTN_ID);
-    const rail = document.querySelector('.rail');
-    if (!rail) return null;
+  function createRailButton(app) {
     const btn = document.createElement('button');
-    btn.id = RAIL_BTN_ID;
     btn.type = 'button';
     btn.className = 'rail-btn nav-tab has-tooltip hwx-extapp-rail';
-    const app = currentApp();
     const label = app ? app.label : 'App';
     btn.dataset.tooltip = label;
     btn.setAttribute('aria-label', label);
+    btn.id = app ? RAIL_BTN_PREFIX + '-' + app.id : RAIL_BTN_PREFIX;
+    btn.dataset.appId = app ? app.id : '';
+    btn.dataset.hwxExtapp = '1';                       /* marker for our own buttons */
     btn.innerHTML = railIcon();
-    btn.addEventListener('click', (ev) => { ev.preventDefault(); toggleOverlay(); });
-    // Insert just before the rail spacer (so it sits with the content tabs,
-    // above settings), or append if there's no spacer.
-    const spacer = rail.querySelector('.rail-spacer');
-    if (spacer) rail.insertBefore(btn, spacer);
-    else rail.appendChild(btn);
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const targetId = app ? app.id : null;
+      // Rail button always navigates to the target app.  If the overlay is
+      // already open for a *different* app, switch content without closing.
+      if (overlayOpen) {
+        if (selectedAppId === targetId) { closeOverlay(); return; }
+        selectedAppId = targetId;
+        renderOverlayContent();
+        // Update active button
+        document.querySelectorAll('[data-hwx-extapp="1"]').forEach(b => b.classList.remove('active'));
+        const activeBtn = document.getElementById(targetId ? RAIL_BTN_PREFIX + '-' + targetId : RAIL_BTN_PREFIX);
+        if (activeBtn) activeBtn.classList.add('active');
+        return;
+      }
+      selectedAppId = targetId;
+      openOverlay();
+    });
     return btn;
+  }
+
+  function syncRailButtons() {
+    const rail = document.querySelector('.rail');
+    if (!rail) return 0;
+
+    const cfg = loadCfg();
+    const existing = rail.querySelectorAll('[data-hwx-extapp="1"]');
+    const validIds = new Set();
+
+    // Add/update one button per app
+    cfg.apps.forEach((app) => {
+      validIds.add(app.id);
+      const btnId = RAIL_BTN_PREFIX + '-' + app.id;
+      let btn = document.getElementById(btnId);
+      if (!btn) {
+        btn = createRailButton(app);
+        btn.id = btnId;
+        btn.dataset.appId = app.id;
+        const spacer = rail.querySelector('.rail-spacer');
+        if (spacer) rail.insertBefore(btn, spacer);
+        else rail.appendChild(btn);
+      }
+      btn.dataset.tooltip = app.label;
+      btn.setAttribute('aria-label', app.label);
+    });
+
+    // Remove stale buttons (apps that no longer exist)
+    existing.forEach((btn) => {
+      const appId = btn.dataset.appId;
+      if (appId && !validIds.has(appId)) {
+        btn.remove();
+      }
+    });
+
+    // If no apps, ensure the default "App" button exists
+    if (cfg.apps.length === 0) {
+      let defaultBtn = document.getElementById(RAIL_BTN_PREFIX);
+      if (!defaultBtn) {
+        defaultBtn = createRailButton(null);
+        const spacer = rail.querySelector('.rail-spacer');
+        if (spacer) rail.insertBefore(defaultBtn, spacer);
+        else rail.appendChild(defaultBtn);
+      }
+    } else {
+      // Remove default button if present
+      const defaultBtn = document.getElementById(RAIL_BTN_PREFIX);
+      if (defaultBtn) defaultBtn.remove();
+    }
+
+    return cfg.apps.length;
   }
 
   // ── overlay panel with the iframe ───────────────────────────────────────
@@ -148,6 +219,7 @@
       '<div class="hwx-extapp-bar">' +
         '<span class="hwx-extapp-title"></span>' +
         '<span class="hwx-extapp-spacer"></span>' +
+        '<button type="button" class="hwx-extapp-btn hwx-extapp-add" title="Add app" aria-label="Add app">+</button>' +
         '<button type="button" class="hwx-extapp-btn hwx-extapp-config" title="Configure">Configure</button>' +
         '<button type="button" class="hwx-extapp-btn hwx-extapp-open" title="Open in new tab">Open ↗</button>' +
         '<button type="button" class="hwx-extapp-btn hwx-extapp-close" title="Close" aria-label="Close">✕</button>' +
@@ -156,8 +228,9 @@
     document.body.appendChild(ov);
     ov.querySelector('.hwx-extapp-close').addEventListener('click', () => closeOverlay());
     ov.querySelector('.hwx-extapp-config').addEventListener('click', () => openConfig());
+    ov.querySelector('.hwx-extapp-add').addEventListener('click', () => openConfig(true));
     ov.querySelector('.hwx-extapp-open').addEventListener('click', () => {
-      const app = currentApp();
+      const app = selectedApp();
       if (app && validUrl(app.url)) window.open(app.url, '_blank', 'noopener');
     });
     return ov;
@@ -165,7 +238,7 @@
 
   function renderOverlayContent() {
     const ov = buildOverlay();
-    const app = currentApp();
+    const app = selectedApp();
     const label = app ? app.label : 'External app';
     ov.querySelector('.hwx-extapp-title').textContent = label;
     const body = ov.querySelector('.hwx-extapp-body');
@@ -185,17 +258,8 @@
     frame.className = 'hwx-extapp-iframe';
     frame.src = app.url;
     frame.setAttribute('title', label);
-    // Sandbox the embedded app with an explicit, documented allow-list so it can
-    // function (scripts/forms/popups) while staying constrained (Frank, PR #25:
-    // the previous comment claimed "sandboxed" but never set a sandbox attr).
-    // Tradeoff: a real web app generally needs allow-scripts + allow-same-origin
-    // to work; for a SAME-ORIGIN target that pairing relaxes the origin barrier,
-    // so the README is explicit that an embedded app is trusted browser content
-    // once the operator allow-lists its origin via HERMES_WEBUI_CSP_FRAME_EXTRA.
     frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-downloads');
     frame.setAttribute('referrerpolicy', 'no-referrer');
-    // A CSP frame-src block surfaces as a blank frame; show a hint underneath
-    // that the operator may need HERMES_WEBUI_CSP_FRAME_EXTRA.
     const hint = document.createElement('div');
     hint.className = 'hwx-extapp-cspnote';
     hint.innerHTML = 'If this stays blank, the page may be blocked by the WebUI ' +
@@ -207,29 +271,37 @@
 
   function toggleOverlay() { overlayOpen ? closeOverlay() : openOverlay(); }
 
-  function openOverlay() {
+  function openOverlay(appId) {
+    if (appId) selectedAppId = appId;
     renderOverlayContent();
     const ov = document.getElementById(OVERLAY_ID);
+    if (!ov) return;
     ov.style.display = 'flex';
     overlayOpen = true;
-    const btn = document.getElementById(RAIL_BTN_ID);
-    if (btn) btn.classList.add('active');
+    // Active state on matching rail button
+    const app = selectedApp();
+    document.querySelectorAll('[data-hwx-extapp="1"]').forEach(b => b.classList.remove('active'));
+    if (app) {
+      const activeBtn = document.getElementById(RAIL_BTN_PREFIX + '-' + app.id) || document.getElementById(RAIL_BTN_PREFIX);
+      if (activeBtn) activeBtn.classList.add('active');
+    }
     document.addEventListener('keydown', escClose, true);
   }
+
   function closeOverlay() {
     const ov = document.getElementById(OVERLAY_ID);
     if (ov) ov.style.display = 'none';
     overlayOpen = false;
-    const btn = document.getElementById(RAIL_BTN_ID);
-    if (btn) btn.classList.remove('active');
+    document.querySelectorAll('[data-hwx-extapp="1"]').forEach(b => b.classList.remove('active'));
     document.removeEventListener('keydown', escClose, true);
   }
+
   function escClose(ev) { if (ev.key === 'Escape') closeOverlay(); }
 
   // ── config dialog ───────────────────────────────────────────────────────
 
-  function openConfig() {
-    const app = currentApp();
+  function openConfig(addNew) {
+    const app = addNew ? null : selectedApp();
     let dlg = document.getElementById('hwxExtAppConfig');
     if (dlg) dlg.remove();
     dlg = document.createElement('div');
@@ -237,7 +309,7 @@
     dlg.className = 'hwx-extapp-config-dlg';
     dlg.innerHTML =
       '<div class="hwx-extapp-config-card" role="dialog" aria-label="Configure external app">' +
-        '<div class="hwx-extapp-config-title">External app tab</div>' +
+        '<div class="hwx-extapp-config-title">' + (app ? 'Edit app' : 'Add app') + '</div>' +
         '<label class="hwx-extapp-field"><span>Label</span>' +
           '<input type="text" class="hwx-extapp-input hwx-extapp-label-in" maxlength="24" placeholder="App"></label>' +
         '<label class="hwx-extapp-field"><span>URL (http/https)</span>' +
@@ -246,6 +318,7 @@
           '<code>HERMES_WEBUI_CSP_FRAME_EXTRA</code>. Same-origin / loopback URLs work without it.</div>' +
         '<div class="hwx-extapp-config-err" hidden></div>' +
         '<div class="hwx-extapp-config-actions">' +
+          '<button type="button" class="hwx-extapp-btn hwx-extapp-delete" style="margin-right:auto;color:var(--danger,#e5534b)">Delete</button>' +
           '<button type="button" class="hwx-extapp-btn hwx-extapp-cancel">Cancel</button>' +
           '<button type="button" class="hwx-extapp-btn hwx-extapp-save">Save</button>' +
         '</div>' +
@@ -254,11 +327,29 @@
     const labelIn = dlg.querySelector('.hwx-extapp-label-in');
     const urlIn = dlg.querySelector('.hwx-extapp-url-in');
     const err = dlg.querySelector('.hwx-extapp-config-err');
+    const deleteBtn = dlg.querySelector('.hwx-extapp-delete');
     labelIn.value = app ? app.label : '';
     urlIn.value = app ? app.url : '';
+    // Hide delete button if we're adding (no existing app)
+    if (!app) deleteBtn.style.display = 'none';
+
     const close = () => dlg.remove();
     dlg.querySelector('.hwx-extapp-cancel').addEventListener('click', close);
     dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
+
+    // Delete button — remove this app and refresh
+    deleteBtn.addEventListener('click', () => {
+      if (!app) return close();
+      const cfg = loadCfg();
+      cfg.apps = cfg.apps.filter(a => a.id !== app.id);
+      saveCfg(cfg.apps);
+      selectedAppId = null;
+      syncRailButtons();
+      close();
+      closeOverlay();
+    });
+
+    // Save button
     dlg.querySelector('.hwx-extapp-save').addEventListener('click', () => {
       const url = urlIn.value.trim();
       const label = (labelIn.value.trim() || 'App').slice(0, 24);
@@ -268,18 +359,21 @@
         return;
       }
 
-      // Save to v2 data model
       const cfg = loadCfg();
       if (app && cfg.apps.some(a => a.id === app.id)) {
+        // Edit existing app
         cfg.apps = cfg.apps.map(a => a.id === app.id ? { ...a, url, label } : a);
+        selectedAppId = app.id;
       } else {
-        cfg.apps = [{ id: uid(), url, label, icon: '' }];
+        // Add new app
+        const newApp = { id: uid(), url, label, icon: '' };
+        cfg.apps.push(newApp);
+        selectedAppId = newApp.id;
       }
       saveCfg(cfg.apps);
 
-      // refresh rail tooltip + overlay
-      const btn = document.getElementById(RAIL_BTN_ID);
-      if (btn) { btn.dataset.tooltip = label; btn.setAttribute('aria-label', label); }
+      // Refresh rail buttons and overlay
+      syncRailButtons();
       if (overlayOpen) renderOverlayContent();
       close();
     });
@@ -290,27 +384,36 @@
   function install(attempt) {
     attempt = attempt || 0;
     if (document.querySelector('.rail')) {
-      ensureRailButton();
+      syncRailButtons();
       window.HermesExternalAppTabExtension = {
-        version: '0.2.0',
+        version: '0.3.0',
         getConfig: loadCfg,
         setConfig(url, label) {
           if (url && !validUrl(url)) return false;
           const cfg = loadCfg();
-          const app = cfg.apps && cfg.apps.length > 0 ? cfg.apps[0] : null;
+          const app = selectedAppId ? getApp(selectedAppId) : cfg.apps[0] || null;
           if (app) {
             app.url = url || '';
             app.label = (label || 'App').slice(0, 24);
           } else {
-            cfg.apps.push({ id: uid(), url: url || '', label: (label || 'App').slice(0, 24), icon: '' });
+            const newApp = { id: uid(), url: url || '', label: (label || 'App').slice(0, 24), icon: '' };
+            cfg.apps.push(newApp);
+            selectedAppId = newApp.id;
           }
           saveCfg(cfg.apps);
-          const btn = document.getElementById(RAIL_BTN_ID);
-          if (btn) { const a = currentApp(); btn.dataset.tooltip = a ? a.label : 'App'; btn.setAttribute('aria-label', a ? a.label : 'App'); }
+          syncRailButtons();
           if (overlayOpen) renderOverlayContent();
           return true;
         },
-        open: openOverlay,
+        open(id) {
+          if (id) {
+            selectedAppId = id;
+          } else {
+            const cfg = loadCfg();
+            selectedAppId = cfg.apps.length > 0 ? cfg.apps[0].id : null;
+          }
+          openOverlay();
+        },
         close: closeOverlay,
       };
       return true;
