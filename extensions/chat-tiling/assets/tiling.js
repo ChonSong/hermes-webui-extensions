@@ -50,7 +50,7 @@ body.ext-tiling-body #messages{overflow:hidden}
 }
 
 // ── State ──
-const T={tiles:[],activeId:null,nextId:1,grid:null,tb:null,visible:false,_w:null,_tc:{},_saved:null,pendingTile:null,pendingTimer:null};
+const T={tiles:[],activeId:null,nextId:1,grid:null,tb:null,visible:false,_w:null,_tc:{},_saved:null,pendingTile:null,pendingTimer:null,_actGen:0};
 const tid=i=>T.tiles.find(t=>t.id===i),bySid=s=>T.tiles.find(t=>t.sid===s),at=()=>tid(T.activeId);
 const gs=(k,d)=>{try{const w=window.HermesExtensionSettings;if(w){const x=w.settingsForExtension('chat-tiling');return x.get(k)!=null?x.get(k):d}}catch(_){}return d};
 
@@ -103,6 +103,7 @@ function updateHeader(t){
 function focusTile(id,opts){
   opts=opts||{};
   const tile=tid(id);if(!tile)return;
+  const gen=++T._actGen; // activation generation — discard stale async completions
   // Save outgoing tile state
   if(T.activeId&&T.activeId!==id){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
   // Swap msgInner ID
@@ -115,6 +116,7 @@ function focusTile(id,opts){
     // Breakage #3: use loadSession for full hydration instead of manual S.* swap
     if(tile.sid&&typeof window.loadSession==='function'){
       window.loadSession(tile.sid,{skipExtHooks:true}).then(()=>{
+        if(gen!==T._actGen)return; // stale activation, discard
         if(typeof S!=='undefined'){tile.messages=[...(S.messages||[])];tile.busy=!!S.busy;tile.activeStreamId=S.activeStreamId||null;tile.session=S.session}
         renderMsgs(tile);updateHeader(tile);
       }).catch(()=>{restoreFromTile(tile)});
@@ -337,8 +339,6 @@ function init(){
   T.grid=document.createElement('div');T.grid.id='ext-tile-grid';T.grid.className='ext-tile-grid';T.grid.style.display='none';
   const mi=document.getElementById('msgInner');if(mi&&mi.parentNode)mi.parentNode.appendChild(T.grid);
   createToolbar();tbActive();initCapture();initKeyboard();initBadgeObserver();
-  // Breakage #8: use default_layout setting for initial restore
-  try{const s=localStorage.getItem('hermes-ext-tiling-layout');if(s){const[c,r]=s.split('x').map(Number);if(c&&r&&c*r<=6)setTimeout(()=>showGrid(c,r),500)}else{const defLayout=gs('default_layout','4');const layoutMap={'2':[2,1],'4':[2,2],'6':[3,2]};const lr=layoutMap[defLayout];if(lr)setTimeout(()=>showGrid(lr[0],lr[1]),500)}}catch(_){}
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();

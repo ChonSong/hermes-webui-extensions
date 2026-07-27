@@ -28,17 +28,6 @@
       },
       "settings_schema": [
         {
-          "key": "default_layout",
-          "type": "enum",
-          "label": "Default layout",
-          "options": [
-            {"value": "2", "label": "2-column (horizontal split)"},
-            {"value": "4", "label": "4 corners (2×2 grid)"},
-            {"value": "6", "label": "6 tiles (3×2 grid)"}
-          ],
-          "default": "4"
-        },
-        {
           "key": "auto_tile",
           "type": "boolean",
           "label": "Auto-tile on session click",
