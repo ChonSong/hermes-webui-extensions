@@ -1,9 +1,10 @@
 # External App Tab
 
-External App Tab is a trusted local Hermes WebUI extension that pins a
-compatible self-hosted web app — Grafana, Vaultwarden, Linkwarden, a personal
-dashboard — as a tab inside the WebUI via an `<iframe>`. It adds a button to
-the left rail that opens a full-area panel framing a URL you configure.
+External App Tab is a trusted local Hermes WebUI extension that pins one or
+more compatible self-hosted web apps — Grafana, Vaultwarden, Linkwarden, a
+personal dashboard — as tabs inside the WebUI via `<iframe>`s. It adds a rail
+button per app that opens a full-area panel framing the selected app's URL, plus
+a manager view for reorder and per-app controls.
 
 It works best for **framable dashboards, status pages, and local tools** that
 don't require a cross-origin cookie login. It provides an iframe slot — not a
@@ -12,13 +13,13 @@ Limitations** for the third-party-iframe auth/cookie caveats).
 
 ## What It Does
 
-- Adds a rail button (with the content tabs, above Settings).
-- Clicking it opens a full-area overlay with a top bar (title, **Configure**,
-  **Open ↗**, **Close**) and the framed app below.
-- **Configure** dialog: set a label + an `http(s)` URL; stored in the native
-  Settings → Extensions → External App Tab settings store when available, with a
-  legacy localStorage fallback on older core.
-- Falls back to a "no app configured" prompt until you set a URL.
+- Adds one rail button per configured app (with the content tabs, above Settings).
+- Clicking a rail button opens a full-area overlay with a top bar (title,
+  **Manage**, **+**, **Configure**, **Open ↗**, **Close**) and the framed app below.
+- **Configure** dialog: set a label, URL, and optional icon per app.
+- **Manage** view: reorder apps (↑/↓), per-app Open/Edit/Delete.
+- **Icon Picker**: searchable grid of 63 Lucide icons; per-app icon persists to storage.
+- Falls back to a "no app configured" prompt until you add a URL.
 - Escape or the ✕ closes the overlay; the rail stays accessible.
 
 ## ⚠️ CSP dependency (read this)
@@ -44,9 +45,8 @@ export HERMES_WEBUI_CSP_FRAME_EXTRA="https://your-app.example.com"
 Hermes WebUI page
   -> manifest-bundled extension assets
   -> /extensions/assets/external-app-tab.js + .css
-  -> rail button -> full-area overlay -> <iframe src="<your URL>">
-  -> Settings → Extensions → External App Tab settings: { url, label }
-  -> legacy fallback: localStorage hermes-ext-external-app ({ url, label })
+  -> rail button(s) -> full-area overlay -> <iframe src="selected app URL">
+  -> localStorage hermes-ext-external-app: { _v: 2, apps: [{ id, url, label, icon }] }
 ```
 
 This extension is `static-ui` / manifest-bundle only. It does not add backend
@@ -75,31 +75,29 @@ Click the new rail button, **Configure**, enter the URL, and Save.
 
 Also on `window.HermesExternalAppTabExtension`:
 
-- `.getConfig()` → `{ url, label }`
-- `.setConfig(url, label)` — set (rejects non-http(s) URLs)
-- `.open()` / `.close()` — toggle the overlay
+- `.version` → `"0.5.0"`
+- `.getConfig()` → `{ _v: 2 apps: [{ id, url, label, icon }] }`
+- `.setConfig(url, label)` — set URL/label on the selected app (rejects non-http(s) URLs)
+- `.open(id?)` — open the overlay for a specific app (or first app if no id given)
+- `.close()` — close the overlay
 
 ## Disable And Uninstall
 
 Restart Hermes WebUI without `HERMES_WEBUI_EXTENSION_DIR` /
 `HERMES_WEBUI_EXTENSION_MANIFEST`, or remove the `extensions/external-app-tab/`
-directory. Config lives in the native Settings → Extensions store on supported
-core builds; older builds use the legacy `hermes-ext-external-app` localStorage
-key.
+directory. Config lives in the `hermes-ext-external-app` localStorage key.
 
 ## Trust And Permissions
 
 This is trusted local code. Current disclosed behavior:
 
-- creates extension-owned DOM (a rail button, a full-area overlay, a config
-  dialog)
-- embeds a **user-configured external URL** in an `<iframe>`
+- creates extension-owned DOM (rail button(s), a full-area overlay, a config
+  dialog, a manager view, an icon picker)
+- embeds **user-configured external URL**s in `<iframe>`s
   (`permissions.network_external: true`) — this is the whole point of the
-  extension; the URL is whatever the operator sets and is subject to the page CSP
-- reads/writes `url` and `label` through the native
-  `HermesExtensionSettings` store (`permissions.storage.owned: true`), with a
-  legacy fallback to the single `hermes-ext-external-app` localStorage key on
-  older core builds
+  extension; the URLs are whatever the operator sets and are subject to the page CSP
+- reads/writes the `hermes-ext-external-app` localStorage key
+  (`permissions.storage.owned: true`)
 - does NOT call WebUI HTTP APIs
 - does NOT access cookies, loopback sidecars, the filesystem, or native hosts
 - does NOT itself `fetch()` any remote resource — it only sets an iframe `src`
@@ -120,9 +118,7 @@ rendered.
 ## Compatibility
 
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
-- native Settings → Extensions fields via `settings_schema` /
-  `HermesExtensionSettings`, with localStorage fallback on older core builds
-- the left rail (`.rail`) to host the button
+- the left rail (`.rail`) to host the button(s)
 - for external origins: the core `HERMES_WEBUI_CSP_FRAME_EXTRA` knob (PR #5091)
 
 ## Verification
@@ -138,14 +134,15 @@ python3 -m json.tool extensions/external-app-tab/manifest.json
 
 Manual verification:
 
-- Settings → Extensions → External App Tab exposes **App URL** and **Rail label**
-- the rail button appears; clicking it opens the overlay
-- with no URL set, the empty-state prompt + Configure appear
+- the rail button(s) appear per configured app; clicking opens the overlay
+- with no apps configured, the empty-state prompt + Configure appear
+- **+** button adds a new app; **Manage** opens the reorder/management view
 - configuring a same-origin URL frames it immediately
 - configuring an external URL frames it when `HERMES_WEBUI_CSP_FRAME_EXTRA`
   allows that origin; otherwise the frame is blank and the CSP hint is shown
+- Icon picker shows a searchable grid; selecting persists per-app
 - Open ↗ opens the URL in a new tab; Close / Escape closes the overlay
-- the config (label + URL) persists across a reload
+- config persists across a reload
 
 ## Known Limitations
 
@@ -170,4 +167,3 @@ Manual verification:
   embedded login usually requires a same-origin reverse proxy, or HTTPS plus
   appropriate cookie settings (`SameSite=None; Secure`) and a framing policy that
   permits embedding.
-- One app at a time (single configured URL).
