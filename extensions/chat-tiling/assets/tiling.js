@@ -119,7 +119,10 @@ function focusTile(id,opts){
         if(gen!==T._actGen)return; // stale activation, discard
         if(typeof S!=='undefined'){tile.messages=[...(S.messages||[])];tile.busy=!!S.busy;tile.activeStreamId=S.activeStreamId||null;tile.session=S.session}
         renderMsgs(tile);updateHeader(tile);
-      }).catch(()=>{restoreFromTile(tile)});
+      }).catch(()=>{
+        if(gen!==T._actGen)return; // stale activation, don't restore stale state
+        restoreFromTile(tile);
+      });
     } else {
       restoreFromTile(tile);
     }
