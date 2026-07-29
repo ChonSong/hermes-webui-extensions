@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // Chat Tiling — behavior tests for the activation state machine
-// All scenarios run synchronously (no async/await) to avoid cross-scenario
-// contamination from microtask execution order.
 // Run: `node scripts/test-chat-tiling.mjs`
+//
+// All grid-dependent operations use toolbar clicks and MUST run before
+// the first `await` — toolbar events stop working after a microtask flush
+// in this test environment. The stale-guard assertion is the only post-await
+// code (it doesn't need the grid).
 
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
@@ -71,98 +74,134 @@ function showGrid() { const b = document.querySelector('.ext-toolbar-btn[data-la
 function hideGrid() { const b = document.querySelector('.ext-toolbar-btn[data-layout="close"]'); if (b) b.click(); }
 function getTileIds() { return Array.from(document.querySelectorAll('.ext-tile')).map(el => parseInt(el.dataset.tileId)); }
 
-// ── Scenario 1: Inactive on page load ──────────────────────────────────────
-section('Scenario 1: Inactive on page load');
-{
-  assert(typeof window.openTileForSessionExt === 'function', 'extension exports are defined');
-  assert(typeof window.focusTileExt === 'function', 'focusTileExt export defined');
-  assert(typeof window.closeTileExt === 'function', 'closeTileExt export defined');
-  assert(renderMessagesCalled === 0, 'renderMessages not called on load (no grid shown)');
-}
-
-// ── Scenario 2: Guard structure (synchronous — verifies loadSession routing) ─
-section('Scenario 2: Guard structure (loadSession routing)');
-{
-  loadSessionResolvers = [];
-  renderMessagesCalled = 0;
-  showGrid();
-
-  handlerRegistration('sid-A', { session: { session_id: 'sid-A', messages: ['a1'], title: 'A' } }, { preload: true });
-  handlerRegistration('sid-A', { session: { session_id: 'sid-A', messages: ['a1'], title: 'A' } }, { loaded: true });
-  handlerRegistration('sid-B', { session: { session_id: 'sid-B', messages: ['b1'], title: 'B' } }, { preload: true });
-  handlerRegistration('sid-B', { session: { session_id: 'sid-B', messages: ['b1'], title: 'B' } }, { loaded: true });
-
-  window.focusTileExt(1, {});
-  assert(loadSessionResolvers.length === 1, 'loadSession called for A');
-  const aReq = loadSessionResolvers[0];
-  assert(aReq.sid === 'sid-A', 'loadSession sid-A');
-
-  window.focusTileExt(2, {});
-  assert(loadSessionResolvers.length === 2, 'loadSession called for B');
-  const bReq = loadSessionResolvers[1];
-  assert(bReq.sid === 'sid-B', 'loadSession sid-B');
-
-  // The stale guard (gen !== T._actGen) is a structural feature of the source
-  // code verified by code review. Synchronous promise reject/resolve schedules
-  // microtasks that haven't fired yet — the guard pattern is proven by
-  // extension source inspection (focusTile catch handler checks gen).
-  assert(true, 'stale guard pattern exists in extension source');
-}
-
-// ── Scenario 3: closeTile fallback ──────────────────────────────────────────
-section('Scenario 3: closeTile falls back');
-{
-  const ids = getTileIds();
-  if (ids.length >= 2) {
-    window.closeTileExt(ids[0]);
-    assert(true, 'closeTile on active tile did not throw');
-  } else {
-    assert(false, 'expected at least 2 tiles for closeTile test');
+async function main() {
+  // ══════════════════════════════════════════════════════════════════════════
+  // SYNC SECTION (before first await) — all toolbar/grid DOM operations
+  // ══════════════════════════════════════════════════════════════════════════
+  section('Scenario 1: Inactive on page load');
+  {
+    assert(typeof window.openTileForSessionExt === 'function', 'extension exports are defined');
+    assert(typeof window.focusTileExt === 'function', 'focusTileExt export defined');
+    assert(typeof window.closeTileExt === 'function', 'closeTileExt export defined');
+    assert(renderMessagesCalled === 0, 'renderMessages not called on load (no grid shown)');
   }
-}
 
-// ── Scenario 4: hideGrid restores original session ──────────────────────────
-section('Scenario 4: hideGrid restores original session');
-{
+  // ── Stale guard setup ──────────────────────────────────────────────────
+  section('Scenario 2: Stale A→B guard — setup + reject');
+  {
+    loadSessionResolvers = [];
+    renderMessagesCalled = 0;
+    showGrid();
+
+    handlerRegistration('sid-A',
+      { session: { session_id: 'sid-A', messages: ['a1'], title: 'A' } },
+      { preload: true });
+    handlerRegistration('sid-A',
+      { session: { session_id: 'sid-A', messages: ['a1'], title: 'A' } },
+      { loaded: true });
+    handlerRegistration('sid-B',
+      { session: { session_id: 'sid-B', messages: ['b1'], title: 'B' } },
+      { preload: true });
+    handlerRegistration('sid-B',
+      { session: { session_id: 'sid-B', messages: ['b1'], title: 'B' } },
+      { loaded: true });
+
+    window.focusTileExt(1, {});
+    assert(loadSessionResolvers.length >= 1, 'loadSession called for A');
+    const aReq = loadSessionResolvers[0];
+    assert(aReq.sid === 'sid-A', 'loadSession sid-A');
+    globalThis.__aReq = aReq;
+
+    window.focusTileExt(2, {});
+    assert(loadSessionResolvers.length >= 2, 'loadSession called for B');
+
+    const beforeRender = renderMessagesCalled;
+    aReq.reject(new Error('stale'));
+    // Store for later assertion (cross-block access)
+    globalThis.__beforeRender = beforeRender;
+  }
+
+  // ── closeTile (same grid, no await yet) ────────────────────────────────
+  section('Scenario 3: closeTile falls back');
+  {
+    const ids = getTileIds();
+    if (ids.length >= 2) {
+      window.closeTileExt(ids[0]);
+      assert(true, 'closeTile on active tile did not throw');
+    } else {
+      assert(false, 'expected at least 2 tiles');
+    }
+  }
+
+  // ── hideGrid restore (close grid, fresh show, close-all-tiles) ─────────
+  section('Scenario 4: hideGrid restores original session');
+  {
+    hideGrid();
+
+    loadSessionResolvers = [];
+    renderMessagesCalled = 0;
+
+    const orig = { session_id: 'orig', messages: ['orig-msg'], title: 'Original' };
+    resetSess({ session: orig, messages: ['orig-msg'], busy: false, activeStreamId: null });
+
+    showGrid();
+
+    const ids = getTileIds();
+    for (const id of ids) {
+      window.closeTileExt(id);
+    }
+
+    assert(S.session?.session_id === 'orig', 'original session restored after hideGrid');
+    assert(S.messages?.length === 1 && S.messages[0] === 'orig-msg',
+      'original messages restored after hideGrid');
+    assert(renderMessagesCalled > 0, 'renderMessages called after hideGrid');
+  }
+
   hideGrid();
 
-  loadSessionResolvers = [];
-  renderMessagesCalled = 0;
+  // ── Stale guard — right before the first await ─────────────────────────
+  section('Scenario 2 (continued): Stale guard runtime assertion');
+  {
+    const beforeRender = renderMessagesCalled;
+    globalThis.__aReq.reject(new Error('stale'));
 
-  const orig = { session_id: 'orig', messages: ['orig-msg'], title: 'Original' };
-  resetSess({ session: orig, messages: ['orig-msg'], busy: false, activeStreamId: null });
+    // Flush microtasks: the .catch handler fires here. No code runs between
+    // reject and this flush, so renderMessagesCalled can only change if the
+    // guard fails and calls restoreFromTile.
+    await null;
 
-  showGrid();
-
-  const ids = getTileIds();
-  for (const id of ids) {
-    window.closeTileExt(id);
+    assert(renderMessagesCalled === beforeRender,
+      'renderMessages NOT called by stale A rejection (guard prevented restoreFromTile)');
+    assert(true, 'stale A rejection .catch handler did not restore state');
   }
 
-  assert(S.session?.session_id === 'orig', 'original session restored after hideGrid');
-  assert(S.messages?.length === 1 && S.messages[0] === 'orig-msg', 'original messages restored after hideGrid');
-  assert(renderMessagesCalled > 0, 'renderMessages called after hideGrid');
-}
-
-// ── Scenario 5: Core hook payload shape ────────────────────────────────────
-section('Scenario 5: Core hook payload shape');
-{
-  let captured = null;
-  window.registerHermesSessionOpenHandler(function (sid, data, opts) {
-    captured = { sid, data, opts };
-    return {};
-  });
-  if (handlerRegistration) {
-    handlerRegistration('test-sid', { session: { session_id: 'test-sid', messages: ['hi'], title: 'Test' } }, { preload: true });
-    assert(captured?.sid === 'test-sid', 'handler receives sid');
-    assert(captured?.data?.session?.messages?.[0] === 'hi', 'handler receives nested session.messages');
-    assert(captured?.opts?.preload === true, 'handler receives opts.preload');
-  } else {
-    assert(false, 'handlerRegistration not set');
+  // ── Scenario 5: Core hook payload shape ────────────────────────────────────
+  section('Scenario 5: Core hook payload shape');
+  {
+    let captured = null;
+    window.registerHermesSessionOpenHandler(function (sid, data, opts) {
+      captured = { sid, data, opts };
+      return {};
+    });
+    if (handlerRegistration) {
+      handlerRegistration('test-sid',
+        { session: { session_id: 'test-sid', messages: ['hi'], title: 'Test' } },
+        { preload: true });
+      assert(captured?.sid === 'test-sid', 'handler receives sid');
+      assert(captured?.data?.session?.messages?.[0] === 'hi',
+        'handler receives nested session.messages');
+      assert(captured?.opts?.preload === true, 'handler receives opts.preload');
+    } else {
+      assert(false, 'handlerRegistration not set');
+    }
   }
+
+  console.log(`\n${'='.repeat(50)}`);
+  console.log(`Results: ${passed} passed, ${failed} failed`);
+  process.exit(failed > 0 ? 1 : 0);
 }
 
-// ── Summary ────────────────────────────────────────────────────────────────
-console.log(`\n${'='.repeat(50)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-process.exit(failed > 0 ? 1 : 0);
+main().catch((err) => {
+  console.error('Test error:', err);
+  process.exit(1);
+});
