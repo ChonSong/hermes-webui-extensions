@@ -44,3 +44,9 @@ need it and maintainers agree on the shared contract.
 - `external-app-tab`: pin a compatible self-hosted web app (Grafana, a
   dashboard, or another framable tool) as a tab inside the WebUI via an iframe
   (needs the core `HERMES_WEBUI_CSP_FRAME_EXTRA` knob for external origins).
+- `profile-avatars`: per-profile avatar images across profile chips, transcript
+  assistant badges, and the session list; server-stored via a loopback sidecar
+  so they sync across devices with zero localStorage.
+- `rss-feeds`: full RSS/Atom reader — categorized subscriptions, keyword
+  filters, full-text search, cross-device read tracking, and optional
+  free/local AI summaries, all via a local loopback sidecar.
