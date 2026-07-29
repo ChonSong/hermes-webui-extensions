@@ -494,7 +494,7 @@
       cell.type = 'button';
       cell.className = 'hwx-extapp-picker-cell' + (name === currentIcon ? ' selected' : '');
       cell.title = name;
-      cell.innerHTML = li(name, 28) + '<span class="hwx-extapp-picker-name">' + name + '</span>';
+      cell.innerHTML = (typeof li === 'function' ? li(name, 28) : '') + '<span class="hwx-extapp-picker-name">' + name + '</span>';
       cell.addEventListener('click', () => {
         if (iconPickerCallback) iconPickerCallback(name);
         closeIconPicker();
