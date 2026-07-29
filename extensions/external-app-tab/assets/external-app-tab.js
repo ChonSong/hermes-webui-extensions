@@ -644,7 +644,7 @@
             app.url = url || '';
             app.label = (label || 'App').slice(0, 24);
           } else {
-            const newApp = { id: uid(), url: url || '', label: (label || 'App').slice(0, 24), icon: '' };
+            const newApp = { id: uid(), url: url || '', label: (label || 'App').slice(0, 24), icon: icon || '' };
             cfg.apps.push(newApp);
             selectedAppId = newApp.id;
           }
