@@ -1,6 +1,8 @@
 /* External App Tab extension for Hermes WebUI.
    Scoped to hwx-extapp-* classes; uses core CSS variables for theme-fit. */
 
+/* ── overlay ───────────────────────────────────────────────────────────── */
+
 /* Full-area overlay framing the external app (covers the main content area,
    leaving the rail accessible). */
 .hwx-extapp-overlay {
@@ -19,6 +21,8 @@
 @media (min-width: 641px) {
   .hwx-extapp-overlay { left: 48px; }
 }
+
+/* ── top bar ──────────────────────────────────────────────────────────── */
 
 .hwx-extapp-bar {
   display: flex;
@@ -39,6 +43,9 @@
   max-width: 50%;
 }
 .hwx-extapp-spacer { flex: 1 1 auto; }
+
+/* ── buttons ──────────────────────────────────────────────────────────── */
+
 .hwx-extapp-btn {
   appearance: none;
   border: 1px solid var(--border2, rgba(127,127,127,.25));
@@ -49,12 +56,64 @@
   font-size: 12px;
   cursor: pointer;
   transition: background .12s ease, border-color .12s ease;
+  line-height: 1;
 }
 .hwx-extapp-btn:hover {
   background: var(--hover-bg, rgba(127,127,127,.16));
   border-color: var(--border, rgba(127,127,127,.4));
 }
+
+/* Primary action button (e.g. Save) */
+.hwx-extapp-btn-primary {
+  background: var(--accent, #6366f1);
+  border-color: var(--accent, #6366f1);
+  color: #fff;
+  font-weight: 600;
+}
+.hwx-extapp-btn-primary:hover {
+  background: color-mix(in srgb, var(--accent, #6366f1) 85%, #fff);
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 85%, #fff);
+}
+
+/* Danger button (e.g. Delete) */
+.hwx-extapp-btn-danger {
+  color: var(--danger, #e5534b);
+  border-color: color-mix(in srgb, var(--danger, #e5534b) 50%, transparent);
+}
+.hwx-extapp-btn-danger:hover {
+  background: color-mix(in srgb, var(--danger, #e5534b) 12%, transparent);
+  border-color: var(--danger, #e5534b);
+}
+
+/* Ghost button (e.g. Cancel) */
+.hwx-extapp-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.hwx-extapp-btn-ghost:hover {
+  background: var(--hover-bg, rgba(127,127,127,.12));
+  border-color: transparent;
+}
+
+/* Close / ✕ */
 .hwx-extapp-close { font-size: 13px; line-height: 1; }
+
+/* Add button in the bar — slightly more prominent */
+.hwx-extapp-add {
+  font-weight: 600;
+  font-size: 14px;
+  padding: 5px 12px;
+}
+
+/* Manage button — slight emphasis */
+.hwx-extapp-manage {
+  font-weight: 500;
+}
+
+/* Open-in-tab — link-like */
+.hwx-extapp-open {
+  font-size: 11px;
+}
 
 .hwx-extapp-body {
   position: relative;
@@ -86,6 +145,84 @@
   font-size: 11px;
   word-break: break-all;
 }
+/* ── manager view (app list / reorder) ─────────────────────────────────── */
+
+.hwx-extapp-mgr-list {
+  max-width: 540px;
+  margin: 0 auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.hwx-extapp-mgr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border2, rgba(127,127,127,.15));
+  border-radius: 8px;
+  background: var(--surface, #1a1d27);
+  transition: background .1s;
+}
+.hwx-extapp-mgr-row:hover {
+  background: var(--hover-bg, rgba(127,127,127,.06));
+}
+.hwx-extapp-mgr-order {
+  flex: 0 0 auto;
+  width: 24px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted, #888);
+  text-align: center;
+}
+.hwx-extapp-mgr-label {
+  flex: 1 1 30%;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.hwx-extapp-mgr-url {
+  flex: 1 1 35%;
+  font-size: 11px;
+  color: var(--muted, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  direction: rtl;
+  text-align: left;
+}
+.hwx-extapp-mgr-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+}
+.hwx-extapp-mgr-actions .hwx-extapp-btn {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+@keyframes hwx-extapp-mgr-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hwx-extapp-mgr-row {
+  animation: hwx-extapp-mgr-slide-in .15s ease both;
+}
+.hwx-extapp-mgr-row:nth-child(2) { animation-delay: .02s; }
+.hwx-extapp-mgr-row:nth-child(3) { animation-delay: .04s; }
+.hwx-extapp-mgr-row:nth-child(4) { animation-delay: .06s; }
+.hwx-extapp-mgr-row:nth-child(5) { animation-delay: .08s; }
+.hwx-extapp-mgr-row:nth-child(n+6) { animation-delay: .1s; }
+
+/* ── empty state ──────────────────────────────────────────────────────── */
 
 .hwx-extapp-empty {
   margin: auto;
@@ -97,7 +234,7 @@
 .hwx-extapp-empty .hwx-extapp-muted { color: var(--muted, #888); font-size: 13px; }
 .hwx-extapp-empty .hwx-extapp-btn { margin-top: 12px; }
 
-/* Config dialog */
+/* ── config dialog ────────────────────────────────────────────────────── */
 .hwx-extapp-config-dlg {
   position: fixed;
   inset: 0;
@@ -135,6 +272,88 @@
 .hwx-extapp-config-err { font-size: 12px; color: var(--danger, #e5534b); }
 .hwx-extapp-config-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
+/* Icon field in config dialog */
+.hwx-extapp-icon-field .hwx-extapp-icon-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.hwx-extapp-icon-preview {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  border: 1px solid var(--border2, rgba(127,127,127,.3));
+  border-radius: 7px;
+  background: var(--code-bg, rgba(127,127,127,.1));
+  color: var(--text, #fff);
+}
+.hwx-extapp-icon-preview svg { display: block; }
+.hwx-extapp-icon-clear { color: var(--danger, #e5534b); }
+.hwx-extapp-icon-clear[style*="display: none"] { display: none; }
+.hwx-extapp-icon-choose {
+  font-weight: 500;
+}
+
+/* Icon picker */
+.hwx-extapp-picker-overlay {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+}
+.hwx-extapp-picker-card {
+  width: min(520px, 94vw); max-height: 80vh;
+  background: var(--surface, #1a1d27);
+  color: var(--text, #fff);
+  border: 1px solid var(--border, rgba(127,127,127,.3));
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.4);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.hwx-extapp-picker-header {
+  display: flex; align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border2, rgba(127,127,127,.2));
+}
+.hwx-extapp-picker-title { font-weight: 700; font-size: 15px; flex: 1; }
+.hwx-extapp-picker-close { font-size: 14px; }
+.hwx-extapp-picker-search-wrap { padding: 10px 16px; border-bottom: 1px solid var(--border2, rgba(127,127,127,.2)); }
+.hwx-extapp-picker-search {
+  width: 100%; box-sizing: border-box;
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127,127,127,.3));
+  background: var(--bg, #11131a);
+  color: var(--text, #fff);
+  border-radius: 7px; padding: 8px 10px; font-size: 13px;
+}
+.hwx-extapp-picker-search:focus { outline: none; border-color: var(--accent, #6366f1); }
+.hwx-extapp-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 2px; padding: 10px 12px;
+  overflow-y: auto; flex: 1;
+}
+.hwx-extapp-picker-empty {
+  grid-column: 1 / -1; text-align: center;
+  color: var(--muted, #888); font-size: 13px; padding: 24px;
+}
+.hwx-extapp-picker-cell {
+  appearance: none; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 4px; border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent; color: var(--text, #fff);
+  font-size: 9px; transition: background .1s, border-color .1s;
+}
+.hwx-extapp-picker-cell:hover { background: var(--hover-bg, rgba(127,127,127,.12)); }
+.hwx-extapp-picker-cell.selected {
+  background: var(--accent-bg, rgba(99,102,241,.15));
+  border-color: var(--accent, #6366f1);
+}
+.hwx-extapp-picker-cell svg { display: block; }
+.hwx-extapp-picker-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 100%; word-break: break-all;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .hwx-extapp-btn { transition: none; }
+  .hwx-extapp-btn,
+  .hwx-extapp-picker-cell { transition: none; }
 }
