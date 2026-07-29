@@ -636,7 +636,7 @@
       window.HermesExternalAppTabExtension = {
         version: '0.5.0',
         getConfig: loadCfg,
-        setConfig(url, label) {
+        setConfig(url, label, icon) {
           if (url && !validUrl(url)) return false;
           const cfg = loadCfg();
           const app = selectedAppId ? getApp(selectedAppId) : cfg.apps[0] || null;
