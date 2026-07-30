@@ -200,6 +200,7 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync(process.argv[1], 'utf8');
 const calls = [];
+const avatars = new Map([['default', { url: '/api/avatars/default?v=old' }]]);
 function makeElement() {
   let html = '';
   return {
@@ -215,7 +216,12 @@ function makeElement() {
 const document = {
   readyState: 'loading', body: makeElement(),
   addEventListener() {}, querySelectorAll() { return []; },
-  getElementById() { return null; }, createElement() { return makeElement(); },
+  getElementById() { return null; },
+  createElement(tagName) {
+    const element = makeElement();
+    element.tagName = String(tagName || '').toUpperCase();
+    return element;
+  },
 };
 async function fetch(url, options = {}) {
   calls.push({ url, method: options.method || 'GET' });
@@ -226,15 +232,20 @@ async function fetch(url, options = {}) {
     }) };
   }
   if (url.endsWith('/api/avatars') && !options.method) {
-    return { ok: true, json: async () => ({ avatars: {} }) };
+    return { ok: true, json: async () => ({ avatars: Object.fromEntries(avatars) }) };
   }
   if (options.method === 'POST') {
-    return { ok: true, json: async () => ({ url: '/api/avatars/renamed-root?v=1' }) };
+    const profile = decodeURIComponent(url.split('/').pop());
+    const value = { url: `/api/avatars/${encodeURIComponent(profile)}?v=new` };
+    avatars.set(profile, value);
+    return { ok: true, json: async () => value };
   }
   if (options.method === 'DELETE') {
-    return { ok: true, json: async () => ({ deleted: true }) };
+    const profile = decodeURIComponent(url.split('/').pop());
+    const deleted = avatars.delete(profile);
+    return { ok: true, json: async () => ({ deleted }) };
   }
-  if (url.includes('/api/avatars/renamed-root')) {
+  if (url.includes('/api/avatars/')) {
     return { ok: true, blob: async () => ({}) };
   }
   throw new Error('unexpected fetch: ' + url);
@@ -256,23 +267,47 @@ const api = sandbox.ProfileAvatars;
 await api.refresh();
 const root = api.entry('renamed-root');
 if (!root || api.entry('default') !== root) throw new Error('entry(default) did not resolve renamed root');
+if (root.blob !== 'blob:avatar') throw new Error('avatar stored under default did not survive root rename');
 
 const target = makeElement();
 api.renderInto(target, 'default');
-if (!target.children[0] || target.children[0].textContent !== 'H') {
-  throw new Error('renderInto(default) did not render renamed-root fallback');
+if (!target.children[0] || target.children[0].tagName !== 'IMG') {
+  throw new Error('renderInto(default) did not render the persisted root avatar');
 }
 
 api._setActive('default');
 if (api.active() !== 'renamed-root') throw new Error('_setActive(default) kept the alias');
 
 await api.upload('default', { name: 'avatar.png' });
-await api.remove('default');
-if (!calls.some((call) => call.method === 'POST' && call.url.endsWith('/api/avatars/renamed-root'))) {
-  throw new Error('upload(default) used a non-canonical sidecar key');
+if (!calls.some((call) => call.method === 'POST' && call.url.endsWith('/api/avatars/default'))) {
+  throw new Error('upload(default) did not use stable root storage');
 }
-if (!calls.some((call) => call.method === 'DELETE' && call.url.endsWith('/api/avatars/renamed-root'))) {
-  throw new Error('remove(default) used a non-canonical sidecar key');
+if (!avatars.has('default') || avatars.has('renamed-root')) {
+  throw new Error('upload(default) created a second display-name row');
+}
+
+await api.remove('default');
+if (avatars.has('default') || avatars.has('renamed-root')) {
+  throw new Error('remove(default) left a root alias row behind');
+}
+
+for (const bad of ['', '   ', 'missing-profile']) {
+  if (api.entry(bad) !== null) throw new Error('entry mapped invalid name: ' + JSON.stringify(bad));
+  const invalidTarget = makeElement();
+  api.renderInto(invalidTarget, bad);
+  if (invalidTarget.children[0]?.tagName === 'IMG') throw new Error('renderInto mapped invalid name');
+  const before = calls.length;
+  await api.upload(bad, { name: 'avatar.png' }).then(
+    () => { throw new Error('upload accepted invalid name'); },
+    () => {},
+  );
+  await api.remove(bad).then(
+    () => { throw new Error('remove accepted invalid name'); },
+    () => {},
+  );
+  if (calls.length !== before) throw new Error('invalid name reached the sidecar');
+  api._setActive(bad);
+  if (api.active() !== null) throw new Error('_setActive mapped invalid name');
 }
 """
         completed = subprocess.run(

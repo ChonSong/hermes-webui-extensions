@@ -34,6 +34,11 @@
   function _canonicalLookupName(name) {
     return (typeof name === 'string' && name.trim()) ? _canonicalProfileName(name) : name;
   }
+  function _entryForName(name) {
+    var lookupName = _canonicalLookupName(name);
+    if (typeof lookupName !== 'string' || !lookupName.trim()) return null;
+    return _byProfile[lookupName] || null;
+  }
   // Refresh the root + active identity from the roster: the root is the
   // is_default entry; the active profile is resolved from is_active (falling
   // back to data.active) and canonicalized so it matches a _byProfile key.
@@ -87,6 +92,7 @@
       color: _hashColor(disp),
       is_default: !!opts.is_default,
       label: disp,
+      storageName: opts.storageName || name,
     };
   }
 
@@ -163,10 +169,12 @@
       for (var k in _byProfile) delete _byProfile[k];
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
-        var raw = amap[p.name] && amap[p.name].url;
+        var storageName = p.is_default ? 'default' : p.name;
+        var avatar = amap[storageName] || (storageName !== p.name ? amap[p.name] : null);
+        var raw = avatar && avatar.url;
         var url = raw ? (BASE + raw) : null;
-        if (p.is_default) _record(p.name, url, { is_default: true, label: window._botName || 'Hermes' });
-        else _record(p.name, url);
+        if (p.is_default) _record(p.name, url, { is_default: true, label: window._botName || 'Hermes', storageName: storageName });
+        else _record(p.name, url, { storageName: storageName });
       }
       _pruneBlobCache();
       _loaded = true;
@@ -188,20 +196,21 @@
   }
 
   function active() { return _activeName; }
-  function entry(name) { return _byProfile[_canonicalLookupName(name)] || null; }
+  function entry(name) { return _entryForName(name); }
   function list() {
     return Object.keys(_byProfile).map(function (n) { return Object.assign({ name: n }, _byProfile[n] || {}); });
   }
 
   function renderInto(el, name, opts) {
     if (!el) return;
-    name = _canonicalLookupName(name);
+    var resolved = _entryForName(name);
+    name = resolved ? _canonicalLookupName(name) : name;
     var o = opts || {};
     var shape = o.shape === 'square' ? 'pa-avatar--square' : 'pa-avatar--circle';
     el.classList.add('pa-avatar', shape);
     if (o.size) el.classList.add('pa-avatar--' + o.size);
     el.innerHTML = '';
-    var e = name ? _byProfile[name] : null;
+    var e = resolved;
     if (e && e.blob) {
       var img = document.createElement('img');
       img.src = e.blob; img.alt = name; img.decoding = 'async';
@@ -341,11 +350,25 @@
     }, 500);
   }
 
+  function _deleteStoredAvatar(name) {
+    return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
+      method: 'DELETE', credentials: 'same-origin',
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (jj) {
+        throw new Error(jj.error || ('Delete failed (HTTP ' + r.status + ')'));
+      });
+      return r.json().catch(function () { return {}; });
+    });
+  }
+
   function upload(name, blob) {
-    name = _canonicalLookupName(name);
+    var current = _entryForName(name);
+    if (!current) return Promise.reject(new Error('Unknown profile'));
+    var displayName = _canonicalLookupName(name);
+    var storageName = current.storageName || displayName;
     var fd = new FormData();
     fd.append('avatar', blob, blob.name || 'avatar');
-    return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
+    return fetch(BASE + '/api/avatars/' + encodeURIComponent(storageName), {
       method: 'POST', body: fd, credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) return r.json().catch(function () { return {}; }).then(function (jj) {
@@ -353,24 +376,30 @@
       });
       return r.json();
     }).then(function (jj) {
-      var raw = jj.url || ('/api/avatars/' + name + '?v=' + Math.floor(Date.now() / 1000));
-      _record(name, BASE + raw, _byProfile[name] || {});
-      _pruneBlobCache();
-      return _prefetchImages().then(function () { _broadcast(); return jj; });
+      var cleanup = displayName !== storageName ? _deleteStoredAvatar(displayName) : Promise.resolve();
+      return cleanup.then(function () {
+        var raw = jj.url || ('/api/avatars/' + storageName + '?v=' + Math.floor(Date.now() / 1000));
+        _record(displayName, BASE + raw, {
+          is_default: current.is_default,
+          label: current.label,
+          storageName: storageName,
+        });
+        _pruneBlobCache();
+        return _prefetchImages().then(function () { _broadcast(); return jj; });
+      });
     });
   }
   function remove(name) {
-    name = _canonicalLookupName(name);
-    return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
-      method: 'DELETE', credentials: 'same-origin',
-    }).then(function (r) {
-      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (jj) {
-        throw new Error(jj.error || ('Delete failed (HTTP ' + r.status + ')'));
-      });
-      if (_byProfile[name]) { _byProfile[name].url = null; _byProfile[name].blob = null; }
+    var current = _entryForName(name);
+    if (!current) return Promise.reject(new Error('Unknown profile'));
+    var displayName = _canonicalLookupName(name);
+    var targets = [current.storageName || displayName];
+    if (displayName !== targets[0]) targets.push(displayName);
+    return Promise.all(targets.map(_deleteStoredAvatar)).then(function (results) {
+      if (_byProfile[displayName]) { _byProfile[displayName].url = null; _byProfile[displayName].blob = null; }
       _pruneBlobCache();
       _broadcast();
-      return r.json();
+      return results[0];
     });
   }
 
@@ -426,10 +455,9 @@
   }
 
   function _setActive(name) {
-    if (!name) return;
-    name = _canonicalLookupName(name);
-    _activeName = name;
-    document.querySelectorAll('[data-avatar-active]').forEach(function (el) { renderInto(el, name); });
+    var current = _entryForName(name);
+    _activeName = current ? _canonicalLookupName(name) : null;
+    document.querySelectorAll('[data-avatar-active]').forEach(function (el) { renderInto(el, _activeName); });
     _renderBadges();
     _decorateSessionRows();
   }
