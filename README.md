@@ -95,6 +95,8 @@ entries as the main WebUI extension contract evolves.
 
 Run the current repo-wide checks locally with:
 
+## Local test
+
 ```bash
 node scripts/validate-extensions.mjs
 node scripts/test-extension-validator.mjs
