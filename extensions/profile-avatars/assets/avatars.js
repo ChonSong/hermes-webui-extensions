@@ -31,6 +31,14 @@
     if (n === 'default' || n === _rootProfileName) return _rootProfileName;
     return n;
   }
+  function _canonicalLookupName(name) {
+    return (typeof name === 'string' && name.trim()) ? _canonicalProfileName(name) : name;
+  }
+  function _entryForName(name) {
+    var lookupName = _canonicalLookupName(name);
+    if (typeof lookupName !== 'string' || !lookupName.trim()) return null;
+    return _byProfile[lookupName] || null;
+  }
   // Refresh the root + active identity from the roster: the root is the
   // is_default entry; the active profile is resolved from is_active (falling
   // back to data.active) and canonicalized so it matches a _byProfile key.
@@ -65,7 +73,8 @@
   function _hashColor(name) {
     var h = 0;
     for (var i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-    return 'hsl(' + (Math.abs(h) % 360) + ', 55%, 45%)';
+    // White initials stay above WCAG AA contrast at every generated hue.
+    return 'hsl(' + (Math.abs(h) % 360) + ', 55%, 30%)';
   }
   function _initial(name) {
     if (!name) return '?';
@@ -83,6 +92,7 @@
       color: _hashColor(disp),
       is_default: !!opts.is_default,
       label: disp,
+      storageName: opts.storageName || name,
     };
   }
 
@@ -159,10 +169,12 @@
       for (var k in _byProfile) delete _byProfile[k];
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
-        var raw = amap[p.name] && amap[p.name].url;
+        var storageName = p.is_default ? 'default' : p.name;
+        var avatar = amap[storageName] || (storageName !== p.name ? amap[p.name] : null);
+        var raw = avatar && avatar.url;
         var url = raw ? (BASE + raw) : null;
-        if (p.is_default) _record(p.name, url, { is_default: true, label: window._botName || 'Hermes' });
-        else _record(p.name, url);
+        if (p.is_default) _record(p.name, url, { is_default: true, label: window._botName || 'Hermes', storageName: storageName });
+        else _record(p.name, url, { storageName: storageName });
       }
       _pruneBlobCache();
       _loaded = true;
@@ -184,19 +196,21 @@
   }
 
   function active() { return _activeName; }
-  function entry(name) { return _byProfile[name] || null; }
+  function entry(name) { return _entryForName(name); }
   function list() {
     return Object.keys(_byProfile).map(function (n) { return Object.assign({ name: n }, _byProfile[n] || {}); });
   }
 
   function renderInto(el, name, opts) {
     if (!el) return;
+    var resolved = _entryForName(name);
+    name = resolved ? _canonicalLookupName(name) : name;
     var o = opts || {};
     var shape = o.shape === 'square' ? 'pa-avatar--square' : 'pa-avatar--circle';
     el.classList.add('pa-avatar', shape);
     if (o.size) el.classList.add('pa-avatar--' + o.size);
     el.innerHTML = '';
-    var e = name ? _byProfile[name] : null;
+    var e = resolved;
     if (e && e.blob) {
       var img = document.createElement('img');
       img.src = e.blob; img.alt = name; img.decoding = 'async';
@@ -336,10 +350,25 @@
     }, 500);
   }
 
+  function _deleteStoredAvatar(name) {
+    return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
+      method: 'DELETE', credentials: 'same-origin',
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (jj) {
+        throw new Error(jj.error || ('Delete failed (HTTP ' + r.status + ')'));
+      });
+      return r.json().catch(function () { return {}; });
+    });
+  }
+
   function upload(name, blob) {
+    var current = _entryForName(name);
+    if (!current) return Promise.reject(new Error('Unknown profile'));
+    var displayName = _canonicalLookupName(name);
+    var storageName = current.storageName || displayName;
     var fd = new FormData();
     fd.append('avatar', blob, blob.name || 'avatar');
-    return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
+    return fetch(BASE + '/api/avatars/' + encodeURIComponent(storageName), {
       method: 'POST', body: fd, credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) return r.json().catch(function () { return {}; }).then(function (jj) {
@@ -347,23 +376,30 @@
       });
       return r.json();
     }).then(function (jj) {
-      var raw = jj.url || ('/api/avatars/' + name + '?v=' + Math.floor(Date.now() / 1000));
-      _record(name, BASE + raw, _byProfile[name] || {});
-      _pruneBlobCache();
-      return _prefetchImages().then(function () { _broadcast(); return jj; });
+      var cleanup = displayName !== storageName ? _deleteStoredAvatar(displayName) : Promise.resolve();
+      return cleanup.then(function () {
+        var raw = jj.url || ('/api/avatars/' + storageName + '?v=' + Math.floor(Date.now() / 1000));
+        _record(displayName, BASE + raw, {
+          is_default: current.is_default,
+          label: current.label,
+          storageName: storageName,
+        });
+        _pruneBlobCache();
+        return _prefetchImages().then(function () { _broadcast(); return jj; });
+      });
     });
   }
   function remove(name) {
-    return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
-      method: 'DELETE', credentials: 'same-origin',
-    }).then(function (r) {
-      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (jj) {
-        throw new Error(jj.error || ('Delete failed (HTTP ' + r.status + ')'));
-      });
-      if (_byProfile[name]) { _byProfile[name].url = null; _byProfile[name].blob = null; }
+    var current = _entryForName(name);
+    if (!current) return Promise.reject(new Error('Unknown profile'));
+    var displayName = _canonicalLookupName(name);
+    var targets = [current.storageName || displayName];
+    if (displayName !== targets[0]) targets.push(displayName);
+    return Promise.all(targets.map(_deleteStoredAvatar)).then(function (results) {
+      if (_byProfile[displayName]) { _byProfile[displayName].url = null; _byProfile[displayName].blob = null; }
       _pruneBlobCache();
       _broadcast();
-      return r.json();
+      return results[0];
     });
   }
 
@@ -419,9 +455,9 @@
   }
 
   function _setActive(name) {
-    if (!name) return;
-    _activeName = name;
-    document.querySelectorAll('[data-avatar-active]').forEach(function (el) { renderInto(el, name); });
+    var current = _entryForName(name);
+    _activeName = current ? _canonicalLookupName(name) : null;
+    document.querySelectorAll('[data-avatar-active]').forEach(function (el) { renderInto(el, _activeName); });
     _renderBadges();
     _decorateSessionRows();
   }
@@ -536,6 +572,42 @@
       wrap.appendChild(row);
     });
   }
+  function _decodeAvatarDimensions(file) {
+    if (typeof window.createImageBitmap === 'function') {
+      return window.createImageBitmap(file).then(function (bitmap) {
+        var dimensions = { width: bitmap.width, height: bitmap.height };
+        if (typeof bitmap.close === 'function') bitmap.close();
+        return dimensions;
+      }).catch(function () {
+        throw new Error('The selected file is not a decodable image.');
+      });
+    }
+    return new Promise(function (resolve, reject) {
+      var objectUrl = URL.createObjectURL(file);
+      var image = new Image();
+      image.onload = function () {
+        var dimensions = { width: image.naturalWidth, height: image.naturalHeight };
+        URL.revokeObjectURL(objectUrl);
+        resolve(dimensions);
+      };
+      image.onerror = function () {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('The selected file is not a decodable image.'));
+      };
+      image.src = objectUrl;
+    });
+  }
+  function _validateAvatarFile(file) {
+    return _decodeAvatarDimensions(file).then(function (dimensions) {
+      var width = Number(dimensions.width) || 0;
+      var height = Number(dimensions.height) || 0;
+      if (!width || !height) throw new Error('The selected image has invalid dimensions.');
+      if (width > 4096 || height > 4096 || width * height > 16 * 1024 * 1024) {
+        throw new Error('Image dimensions are too large (max 4096px / 16 megapixels).');
+      }
+      return dimensions;
+    });
+  }
   function _pickAndUpload(name) {
     var inp = document.createElement('input');
     inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp';
@@ -546,7 +618,9 @@
       // 512 KiB matches the core sidecar-proxy's hard response cap — anything
       // larger uploads "ok" then 502s on read, so reject it up front.
       if (f.size > 512 * 1024) { _showAvatarError('Image too large (max 512 KiB). Resize to 256–512px first.'); return; }
-      upload(name, f).catch(function (e) { _showAvatarError(e.message); });
+      _validateAvatarFile(f)
+        .then(function () { return upload(name, f); })
+        .catch(function (e) { _showAvatarError(e.message); });
     };
     inp.click();
   }
@@ -592,7 +666,16 @@
     ov.style.display = 'flex';
     var close = document.getElementById('paAvatarClose');
     if (close) close.focus();
-    (_loaded ? Promise.resolve() : refresh()).then(_renderManagerList);
+    // Always refresh on open: profile create/delete rebuilds the core panel but
+    // emits no stable lifecycle event for extensions to consume.
+    sidecarConsented().then(function (ok) {
+      if (!ok) {
+        _renderManagerList();
+        _showAvatarError('Enable WebUI authentication and approve this sidecar in Settings → Extensions.');
+        return;
+      }
+      return refresh().then(_renderManagerList);
+    });
   }
   function _closeManager() {
     var ov = document.getElementById('paAvatarManager');
