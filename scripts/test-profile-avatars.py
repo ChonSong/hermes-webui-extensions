@@ -7,6 +7,7 @@ import concurrent.futures
 import importlib.util
 import os
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
@@ -191,6 +192,96 @@ class FrontendContractTests(unittest.TestCase):
         )[0]
         message = "The selected file is not a decodable image."
         self.assertEqual(block.count(message), 2)
+
+    def test_renamed_root_alias_is_canonical_across_public_frontend_api(self) -> None:
+        harness = r"""
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const calls = [];
+function makeElement() {
+  let html = '';
+  return {
+    children: [], dataset: {}, style: {}, title: '', textContent: '',
+    classList: { add() {}, remove() {}, contains() { return false; } },
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return null; },
+    setAttribute() {}, getAttribute() { return null; },
+    get innerHTML() { return html; },
+    set innerHTML(value) { html = value; this.children = []; },
+  };
+}
+const document = {
+  readyState: 'loading', body: makeElement(),
+  addEventListener() {}, querySelectorAll() { return []; },
+  getElementById() { return null; }, createElement() { return makeElement(); },
+};
+async function fetch(url, options = {}) {
+  calls.push({ url, method: options.method || 'GET' });
+  if (url === '/api/profiles') {
+    return { ok: true, json: async () => ({
+      active: 'default',
+      profiles: [{ name: 'renamed-root', is_default: true, is_active: true }],
+    }) };
+  }
+  if (url.endsWith('/api/avatars') && !options.method) {
+    return { ok: true, json: async () => ({ avatars: {} }) };
+  }
+  if (options.method === 'POST') {
+    return { ok: true, json: async () => ({ url: '/api/avatars/renamed-root?v=1' }) };
+  }
+  if (options.method === 'DELETE') {
+    return { ok: true, json: async () => ({ deleted: true }) };
+  }
+  if (url.includes('/api/avatars/renamed-root')) {
+    return { ok: true, blob: async () => ({}) };
+  }
+  throw new Error('unexpected fetch: ' + url);
+}
+class FormData { append() {} }
+class Element {}
+const sandbox = {
+  document, fetch, FormData, Element,
+  URL: { createObjectURL() { return 'blob:avatar'; }, revokeObjectURL() {} },
+  setTimeout, clearTimeout, console,
+};
+sandbox.window = sandbox;
+sandbox.window.addEventListener = () => {};
+sandbox.window._botName = 'Hermes';
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, { filename: 'avatars.js' });
+
+const api = sandbox.ProfileAvatars;
+await api.refresh();
+const root = api.entry('renamed-root');
+if (!root || api.entry('default') !== root) throw new Error('entry(default) did not resolve renamed root');
+
+const target = makeElement();
+api.renderInto(target, 'default');
+if (!target.children[0] || target.children[0].textContent !== 'H') {
+  throw new Error('renderInto(default) did not render renamed-root fallback');
+}
+
+api._setActive('default');
+if (api.active() !== 'renamed-root') throw new Error('_setActive(default) kept the alias');
+
+await api.upload('default', { name: 'avatar.png' });
+await api.remove('default');
+if (!calls.some((call) => call.method === 'POST' && call.url.endsWith('/api/avatars/renamed-root'))) {
+  throw new Error('upload(default) used a non-canonical sidecar key');
+}
+if (!calls.some((call) => call.method === 'DELETE' && call.url.endsWith('/api/avatars/renamed-root'))) {
+  throw new Error('remove(default) used a non-canonical sidecar key');
+}
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", harness, str(AVATARS_PATH.parent.parent / "assets" / "avatars.js")],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_generated_initial_colors_meet_white_text_contrast(self) -> None:
         self.assertIn("55%, 30%", self.source)

@@ -31,6 +31,9 @@
     if (n === 'default' || n === _rootProfileName) return _rootProfileName;
     return n;
   }
+  function _canonicalLookupName(name) {
+    return (typeof name === 'string' && name.trim()) ? _canonicalProfileName(name) : name;
+  }
   // Refresh the root + active identity from the roster: the root is the
   // is_default entry; the active profile is resolved from is_active (falling
   // back to data.active) and canonicalized so it matches a _byProfile key.
@@ -185,13 +188,14 @@
   }
 
   function active() { return _activeName; }
-  function entry(name) { return _byProfile[name] || null; }
+  function entry(name) { return _byProfile[_canonicalLookupName(name)] || null; }
   function list() {
     return Object.keys(_byProfile).map(function (n) { return Object.assign({ name: n }, _byProfile[n] || {}); });
   }
 
   function renderInto(el, name, opts) {
     if (!el) return;
+    name = _canonicalLookupName(name);
     var o = opts || {};
     var shape = o.shape === 'square' ? 'pa-avatar--square' : 'pa-avatar--circle';
     el.classList.add('pa-avatar', shape);
@@ -338,6 +342,7 @@
   }
 
   function upload(name, blob) {
+    name = _canonicalLookupName(name);
     var fd = new FormData();
     fd.append('avatar', blob, blob.name || 'avatar');
     return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
@@ -355,6 +360,7 @@
     });
   }
   function remove(name) {
+    name = _canonicalLookupName(name);
     return fetch(BASE + '/api/avatars/' + encodeURIComponent(name), {
       method: 'DELETE', credentials: 'same-origin',
     }).then(function (r) {
@@ -421,6 +427,7 @@
 
   function _setActive(name) {
     if (!name) return;
+    name = _canonicalLookupName(name);
     _activeName = name;
     document.querySelectorAll('[data-avatar-active]').forEach(function (el) { renderInto(el, name); });
     _renderBadges();
