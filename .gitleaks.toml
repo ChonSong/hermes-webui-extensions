@@ -2,7 +2,10 @@
 [allowlist]
 description = "Allow known test/non-secret values"
 regexes = [
-    "(?i)example\\.(com|org|net)",
-    "(?i)test-",
-    "(?i)your-",
+    "(?i)^test(-|_|$)",
+    "(?i)^your(-|_|$)",
+]
+paths = [
+    "(?i)extensions/",
+    "(?i)scripts/",
 ]
