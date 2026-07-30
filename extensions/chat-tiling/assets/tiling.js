@@ -20,7 +20,7 @@ function injectCss(){
   document.head.appendChild(Object.assign(document.createElement('style'),{id:'ext-tiling-css',textContent:`
 #ext-tile-grid{position:relative;overflow:hidden;display:none;flex:1 1 0%;min-height:0;min-width:0;gap:4px;padding:4px;background:var(--bg)}
 #ext-tile-grid.ext-tile-grid--active{display:grid;align-items:normal;justify-content:normal;border-top:2px solid var(--accent)}
-body.ext-tiling-body #messages>:not(#ext-tile-grid){display:none!important}
+body.ext-tiling-body #messages>:not(#ext-tile-grid):not([aria-live]):not([role=status]){display:none!important}
 body.ext-tiling-body #messages{overflow:hidden}
 .ext-tile{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .ext-tile--hidden{display:none!important}
@@ -46,11 +46,13 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-toolbar-btn svg{width:16px;height:16px}
 .ext-toolbar-divider{width:1px;height:16px;margin:0 3px;background:var(--border);flex-shrink:0}
 .ext-toolbar-btn[data-tooltip]:hover::after{content:attr(data-tooltip);position:absolute;top:100%;margin-top:4px;padding:4px 8px;border-radius:6px;background:var(--text);color:var(--bg);font-size:11px;white-space:nowrap;pointer-events:none;z-index:10000}
+@media(pointer:coarse){.ext-tile-btn,.ext-toolbar-btn{min-width:44px;min-height:44px}}
+@media(max-width:500px){#ext-tile-grid{grid-template-columns:1fr!important;grid-template-rows:auto!important}}
 `}));
 }
 
 // ── State ──
-const T={tiles:[],activeId:null,nextId:1,grid:null,tb:null,visible:false,_w:null,_tc:{},_saved:null,pendingTile:null,pendingTimer:null,_actGen:0};
+const T={tiles:[],activeId:null,nextId:1,grid:null,tb:null,visible:false,_w:null,_tc:{},_saved:null,_savedComposer:null,_savedModel:null,pendingTile:null,pendingTimer:null,_actGen:0};
 const tid=i=>T.tiles.find(t=>t.id===i),bySid=s=>T.tiles.find(t=>t.sid===s),at=()=>tid(T.activeId);
 const gs=(k,d)=>{try{const w=window.HermesExtensionSettings;if(w){const x=w.settingsForExtension('chat-tiling');return x.get(k)!=null?x.get(k):d}}catch(_){}return d};
 
@@ -81,7 +83,7 @@ tbX:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="current
 // ── Tile element creation ──
 function createTile(t){
   const el=document.createElement('div');
-  el.className='ext-tile';el.dataset.tileId=t.id;
+  el.className='ext-tile';el.tabIndex=-1;el.dataset.tileId=t.id;
   el.innerHTML=`<div class="ext-tile-header"><div class="ext-tile-header-left"><span class="ext-tile-dot" hidden></span><span class="ext-tile-title"></span></div><div class="ext-tile-header-actions"><button class="ext-tile-btn ext-tile-maximize-btn" title="Maximize" aria-label="Maximize">${Svg.max}</button><button class="ext-tile-btn ext-tile-unmaximize-btn" title="Restore" aria-label="Restore" hidden>${Svg.unmax}</button><button class="ext-tile-btn ext-tile-close-btn" title="Close" aria-label="Close">${Svg.close}</button></div></div><div class="ext-tile-body"><div class="ext-tile-msg-inner"></div></div>`;
   el.querySelector('.ext-tile-maximize-btn').onclick=e=>{e.stopPropagation();toggleMax(t.id)};
   el.querySelector('.ext-tile-unmaximize-btn').onclick=e=>{e.stopPropagation();toggleMax(t.id)};
@@ -111,6 +113,7 @@ function focusTile(id,opts){
   T.activeId=id;
   T.tiles.forEach(t=>{if(t.el)t.el.classList.toggle('ext-tile--focused',t.id===id)});
   const ni=tile.el&&tile.el.querySelector('.ext-tile-msg-inner');if(ni)ni.id='msgInner';
+  tile.el&&tile.el.focus();
   // Restore incoming tile
   if(!opts.alreadyLoaded){
     // Breakage #3: use loadSession for full hydration instead of manual S.* swap
@@ -152,7 +155,7 @@ function openTile(sid,data){
 function renderMsgs(t){
   const mi=t.el&&t.el.querySelector('.ext-tile-msg-inner');if(!mi)return;
   window.renderTranscript(mi,t.messages||[],{skipEmpty:false});
-  mi.scrollTop!==undefined&&(mi.scrollTop=mi.scrollHeight);
+  if(mi.scrollTop!==undefined){const atBot=mi.scrollHeight-mi.scrollTop-mi.clientHeight<50;if(atBot)mi.scrollTop=mi.scrollHeight}
 }
 
 // ── Maximize / Unmaximize ──
@@ -171,10 +174,14 @@ function toggleMax(id){
 
 // ── Close tile ──
 async function closeTile(id){
-  const idx=T.tiles.findIndex(t=>t.id===id);if(idx<0)return;
-  const t=T.tiles[idx];
-  if(t.busy&&t.activeStreamId&&typeof cancelSessionStream==='function'){try{await cancelSessionStream(t.session)}catch(_){}}
-  if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){delete INFLIGHT[t.session.session_id];typeof clearInflightState==='function'&&clearInflightState(t.session.session_id)}
+  const tile=tid(id);if(!tile)return;
+  if(tile._closing)return; // idempotent — prevent double-close race
+  tile._closing=true;
+  if(tile.busy&&tile.activeStreamId&&typeof cancelSessionStream==='function'){try{await cancelSessionStream(tile.session)}catch(_){}}
+  if(tile.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[tile.session.session_id]){delete INFLIGHT[tile.session.session_id];typeof clearInflightState==='function'&&clearInflightState(tile.session.session_id)}
+  // Re-find by id after yield — array may have shifted
+  const t=tid(id);if(!t)return;
+  const idx=T.tiles.indexOf(t);if(idx<0)return;
   if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
   T.tiles.splice(idx,1);
   if(t.maximized){T.tiles.forEach(x=>{x.maximized=false;if(x.el){x.el.classList.remove('ext-tile--hidden','ext-tile--maximized');x.el.querySelector('.ext-tile-maximize-btn').hidden=false;x.el.querySelector('.ext-tile-unmaximize-btn').hidden=true}})}
@@ -237,14 +244,14 @@ function showGrid(cols,rows){
   if(T.visible&&T._cols===cols&&T._rows===rows)return;
   if(T.visible)closeAll();
   T._cols=cols;T._rows=rows;T.visible=true;
-  if(typeof S!=='undefined'&&!T._saved){T._saved={session:S.session,messages:[...(S.messages||[])],busy:!!S.busy,activeStreamId:S.activeStreamId||null}}
+  if(typeof S!=='undefined'&&!T._saved){T._saved={...S};const cm=document.getElementById('msg');T._savedComposer=cm?cm.value:'';const ms=document.getElementById('modelSelect');T._savedModel=ms?ms.value:''}
   const o=document.getElementById('msgInner');if(o){o.removeAttribute('id');o.classList.add('messages-inner--idle')}
   document.body.classList.add('ext-tiling-body');
   T.grid.style.display='';T.grid.classList.add('ext-tile-grid--active');
   T.grid.style.gridTemplateColumns=`repeat(${cols},1fr)`;T.grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
   closeAll();
   for(let i=0;i<cols*rows;i++){
-    const t={id:T.nextId++,sid:null,session:null,messages:[],busy:false,activeStreamId:null,maximized:false,el:null,cv:'',mv:null};
+    const t={id:T.nextId++,sid:null,session:null,messages:[],busy:false,activeStreamId:null,maximized:false,_closing:false,el:null,cv:'',mv:null};
     T.tiles.push(t);t.el=createTile(t);T.grid.appendChild(t.el);updateHeader(t)
   }
   refreshGrid();T.tiles.length>0&&focusTile(T.tiles[0].id);
@@ -257,17 +264,28 @@ function hideGrid(){
   document.querySelectorAll('.ext-tile-msg-inner[id="msgInner"]').forEach(el=>el.removeAttribute('id'));
   const o=document.querySelector('#messages>.messages-inner--idle');if(o){o.id='msgInner';o.classList.remove('messages-inner--idle')}
   document.body.classList.remove('ext-tiling-body');
+  // Save last tile's composer before closeAll destroys it
+  if(T.activeId){const la=at();if(la){T._savedComposer=la.cv||'';T._savedModel=la.mv||''}}
   closeAll();
   T.grid.style.display='none';T.grid.classList.remove('ext-tile-grid--active');
-  // Breakage #5: don't force emptyState display; call core renderMessages() after restoring S
-  if(typeof S!=='undefined'){const s=T._saved;T._saved=null;S.session=s?s.session:null;S.messages=s?[...s.messages]:[];S.busy=s?!!s.busy:false;S.activeStreamId=s?s.activeStreamId||null:null}
+  // Restore S from pre-grid snapshot (full spread preserves all fields)
+  if(typeof S!=='undefined'){const s=T._saved;T._saved=null;if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}}
+  // Restore composer and model select
+  const cm=document.getElementById('msg');if(cm)cm.value=T._savedComposer||'';
+  const ms=document.getElementById('modelSelect');if(ms&&T._savedModel)ms.value=T._savedModel;
+  T._savedComposer=null;T._savedModel=null;
   if(typeof renderMessages==='function')renderMessages();
   if(typeof syncTopbar==='function')syncTopbar();tbActive();
   try{localStorage.removeItem('hermes-ext-tiling-layout')}catch(_){}
 }
 
 function closeAll(){
-  [...T.tiles].forEach(t=>{if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}});
+  [...T.tiles].forEach(t=>{
+    // Fire cancellation for busy tiles (don't await — synchronous teardown)
+    if(t.busy&&t.activeStreamId&&typeof cancelSessionStream==='function'){cancelSessionStream(t.session).catch(()=>{})}
+    if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){delete INFLIGHT[t.session.session_id];typeof clearInflightState==='function'&&clearInflightState(t.session.session_id)}
+    if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
+  });
   T.tiles=[];T.activeId=null;T._tc={};document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove())
 }
 
@@ -284,6 +302,8 @@ function initCapture(){
         // Snapshot outgoing tile before core swaps S
         if(T.activeId){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
         T.pendingTile=t;
+        // Move msgInner to pending tile so Core renders into the correct node
+        if(t&&t.el){const cm=document.getElementById('msgInner');if(cm){cm.removeAttribute('id');const tgt=t.el.querySelector('.ext-tile-msg-inner');if(tgt)tgt.id='msgInner'}}
         // Safety: clear pending if loaded never fires
         clearTimeout(T.pendingTimer);
         T.pendingTimer=setTimeout(()=>{T.pendingTile=null},5000);
