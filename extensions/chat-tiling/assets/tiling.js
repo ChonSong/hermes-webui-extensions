@@ -104,8 +104,8 @@ function focusTile(id,opts){
   opts=opts||{};
   const tile=tid(id);if(!tile)return;
   const gen=++T._actGen; // activation generation — discard stale async completions
-  // Save outgoing tile state
-  if(T.activeId&&T.activeId!==id){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
+  // Save outgoing tile state (skip when alreadyLoaded — preload handler already snapshotted it)
+  if(!opts.alreadyLoaded&&T.activeId&&T.activeId!==id){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
   // Swap msgInner ID
   const cur=document.getElementById('msgInner');if(cur)cur.removeAttribute('id');
   T.activeId=id;
@@ -170,10 +170,10 @@ function toggleMax(id){
 }
 
 // ── Close tile ──
-function closeTile(id){
+async function closeTile(id){
   const idx=T.tiles.findIndex(t=>t.id===id);if(idx<0)return;
   const t=T.tiles[idx];
-  if(t.busy&&t.activeStreamId&&typeof cancelSessionStream==='function')cancelSessionStream(t.session);
+  if(t.busy&&t.activeStreamId&&typeof cancelSessionStream==='function'){try{await cancelSessionStream(t.session)}catch(_){}}
   if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){delete INFLIGHT[t.session.session_id];typeof clearInflightState==='function'&&clearInflightState(t.session.session_id)}
   if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
   T.tiles.splice(idx,1);
@@ -206,7 +206,8 @@ function badge(sid,delta){
 }
 
 function applyBadges(){
-  // Breakage #4: use [data-sid] selector (core sidebar rows are .session-item[data-sid])
+  // Breakage #4 fix: disconnect observer before mutating to prevent self-trigger loop
+  if(T._badgeObs)T._badgeObs.disconnect();
   document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove());
   Object.entries(T._tc).forEach(([sid,count])=>{
     if(count<=0)return;
@@ -219,14 +220,16 @@ function applyBadges(){
     b.textContent=count>9?'9+':String(count);
     (row.querySelector('.session-row-right')||row.querySelector('.session-meta')||row).appendChild(b);
   });
+  // Reconnect observer after mutation is complete
+  if(T._badgeObs&&T._badgeSidebar)T._badgeObs.observe(T._badgeSidebar,{childList:true,subtree:true});
 }
 
 // Breakage #4: reapply badges after core rebuilds the sidebar
 function initBadgeObserver(){
-  const sidebar=document.querySelector('.session-list')||document.querySelector('[data-session-list]');
-  if(!sidebar)return;
-  const obs=new MutationObserver(()=>applyBadges());
-  obs.observe(sidebar,{childList:true,subtree:true});
+  T._badgeSidebar=document.querySelector('.session-list')||document.querySelector('[data-session-list]');
+  if(!T._badgeSidebar)return;
+  T._badgeObs=new MutationObserver(()=>applyBadges());
+  T._badgeObs.observe(T._badgeSidebar,{childList:true,subtree:true});
 }
 
 // ── Show / Hide grid ──
@@ -287,6 +290,7 @@ function initCapture(){
       }
     }
     if(opts&&opts.loaded&&sid){
+      if(!gs('auto_tile',true))return {};
       const t=T.pendingTile||T.tiles.find(t=>!t.sid);
       T.pendingTile=null;clearTimeout(T.pendingTimer);
       if(t&&data){

@@ -80,6 +80,7 @@ async function main() {
   {
     assert(typeof window.focusTileExt === 'function', 'focusTileExt export defined');
     assert(typeof window.closeTileExt === 'function', 'closeTileExt export defined');
+    assert(typeof window.openTileForSessionExt === 'function', 'openTileForSessionExt export defined');
     assert(renderMessagesCalled === 0, 'renderMessages not called on load (no grid shown)');
   }
 
@@ -136,33 +137,36 @@ async function main() {
     globalThis.__aReq.reject(new Error('stale')); // .catch handler queued as microtask
 
     await null; // flush → .catch handler fires with stale gen
+    await null; // ensure full microtask drain in JSDOM
 
     assert(renderMessagesCalled === beforeRender,
       'renderMessages NOT called by stale A rejection (gen guard prevented restoreFromTile)');
   }
 
   // ── closeTile (direct call, no toolbar needed) ───────────────────────
-  section('Scenario 3: closeTile falls back');
+  section('Scenario 3: closeTile focus fallback');
   {
     const ids = getTileIds();
-    if (ids.length >= 2) {
-      window.closeTileExt(ids[0]);
-      const remaining = getTileIds().length;
-      assert(remaining === 1 || remaining === 0,
-        'closeTile removed one tile, no crash');
-    } else {
-      // Grid may be closed or have few tiles — structural check
-      assert(true, 'closeTile call does not throw');
+    assert(ids.length >= 2, 'at least 2 tiles exist before close');
+    window.closeTileExt(ids[0]);
+    const remaining = getTileIds();
+    assert(remaining.length === 1, 'one tile remains after close');
+    if (remaining.length === 1) {
+      const el = document.querySelector(`.ext-tile[data-tile-id="${remaining[0]}"]`);
+      assert(el && el.classList.contains('ext-tile--focused'), 'remaining tile is focused');
+      const mi = el.querySelector('.ext-tile-msg-inner');
+      assert(mi && mi.id === 'msgInner', 'msgInner moved to remaining tile');
     }
   }
 
-  // ── hideGrid restores original session ───────────────────────────────
+  // ── hideGrid restores S from T._saved ────────────────────────────────
   section('Scenario 4: hideGrid restores original session');
   {
-    // The grid is visible from Scenario 2's showGrid. T._saved was set
-    // during showGrid (captured S as it was before grid opened). hideGrid
-    // restores S from T._saved.
-    const preClose = S.session?.session_id;
+    // Clobber S with sentinel values to prove restoration
+    S.session = { session_id: 'SHOULD-BE-OVERWRITTEN' };
+    S.messages = ['should be lost'];
+    S.busy = true;
+    S.activeStreamId = 'should-be-lost';
 
     // Close remaining tiles via direct call; last tile triggers hideGrid
     const ids = getTileIds();
@@ -170,32 +174,35 @@ async function main() {
       window.closeTileExt(id);
     }
 
-    // After hideGrid, S should be restored to its pre-showGrid value
     assert(renderMessagesCalled > 0, 'renderMessages called during close/hide');
 
-    // Verify S was restored (to whatever it was before showGrid)
-    assert(true, 'hideGrid completed without error');
+    // After hideGrid, S should be restored from T._saved (captured by showGrid
+    // in Scenario 2 when S had session:null, messages:[], busy:false)
+    assert(S.session === null, 'S.session restored to null (pre-showGrid value)');
+    assert(Array.isArray(S.messages) && S.messages.length === 0,
+      'S.messages restored to pre-showGrid empty state');
+    assert(S.busy === false, 'S.busy restored to false (pre-showGrid value)');
+    assert(S.activeStreamId === null, 'S.activeStreamId restored to null');
   }
 
   // ── Scenario 5: Core hook payload shape ──────────────────────────────
-  section('Scenario 5: Core hook payload shape');
+  section('Scenario 5: Extension handler receives core payload');
   {
-    let captured = null;
-    window.registerHermesSessionOpenHandler(function (sid, data, opts) {
-      captured = { sid, data, opts };
-      return {};
-    });
-    if (handlerRegistration) {
-      handlerRegistration('test-sid',
-        { session: { session_id: 'test-sid', messages: ['hi'], title: 'Test' } },
-        { preload: true });
-      assert(captured?.sid === 'test-sid', 'handler receives sid');
-      assert(captured?.data?.session?.messages?.[0] === 'hi',
-        'handler receives nested session.messages');
-      assert(captured?.opts?.preload === true, 'handler receives opts.preload');
-    } else {
-      assert(false, 'handlerRegistration not set');
-    }
+    // Use the extension's real initCapture handler, not a test mock
+    const extHandler = handlerRegistration;
+    assert(typeof extHandler === 'function', 'extension initCapture handler registered');
+
+    // Handler is stateful (T.visible must be true for grid operations).
+    // With grid hidden, it returns {} for both phases — verify no crash.
+    const r1 = extHandler('test-sid',
+      { session: { session_id: 'test-sid', messages: ['hi'], title: 'Test' } },
+      { preload: true });
+    assert(r1 && typeof r1 === 'object', 'preload handler returns object (no-op when hidden)');
+
+    const r2 = extHandler('test-sid',
+      { session: { session_id: 'test-sid', messages: ['hi'], title: 'Test' } },
+      { loaded: true });
+    assert(r2 && typeof r2 === 'object', 'loaded handler returns object (no-op when hidden)');
   }
 
   console.log(`\n${'='.repeat(50)}`);
