@@ -429,5 +429,4 @@ function init(){
 }
 // ── Boot ──
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
-(function(E){if(typeof E!=='undefined'&&E){var G=showGrid,H=hideGrid,C=closeAll;if(G&&H&&C){window.__showGrid=G;window.__hideGrid=H;window.__closeAll=C;console.debug('[proof] hooks registered')}}})(window.__PROOFSHOT__);
 })();
