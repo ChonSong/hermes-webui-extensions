@@ -41,5 +41,19 @@
       "serves_bundled_assets": true
     },
     "network_external": false
-  }
+  },
+  "settings_schema": [
+    {
+      "key": "auto_tile",
+      "type": "boolean",
+      "label": "Auto-tile on session click",
+      "default": true
+    },
+    {
+      "key": "show_sidebar_badges",
+      "type": "boolean",
+      "label": "Show tile count badges in sidebar",
+      "default": true
+    }
+  ]
 }
