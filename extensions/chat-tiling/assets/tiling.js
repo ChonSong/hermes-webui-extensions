@@ -256,7 +256,7 @@ async function showGrid(cols,rows){
   document.body.classList.add('ext-tiling-body');
   T.grid.style.display='';T.grid.classList.add('ext-tile-grid--active');
   T.grid.style.gridTemplateColumns=`repeat(${cols},1fr)`;T.grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
-  await closeAll();
+  if(T.tiles.length)await closeAll();
   for(let i=0;i<cols*rows;i++){
     const t={id:T.nextId++,sid:null,session:null,messages:[],busy:false,activeStreamId:null,maximized:false,_closing:false,_pending:false,el:null,cv:'',mv:null};
     T.tiles.push(t);t.el=createTile(t);T.grid.appendChild(t.el);updateHeader(t)
@@ -279,7 +279,7 @@ async function hideGrid(){
   const o=document.querySelector('#messages>.messages-inner--idle');if(o){o.id='msgInner';o.classList.remove('messages-inner--idle')}
   document.body.classList.remove('ext-tiling-body');
   // Save last tile's composer before closeAll destroys it — must snapshot first
-  if(T.activeId){const la=at();if(la){sc(la);T._savedComposer=la.cv||'';T._savedModel=la.mv||''}}
+  if(T.activeId){const la=at();if(la){sc(la);T._savedComposer=la.cv||T._savedComposer||'';T._savedModel=la.mv||T._savedModel||''}}
   await closeAll();
   T.grid.style.display='none';T.grid.classList.remove('ext-tile-grid--active');
   // Restore S from pre-grid snapshot synchronously
@@ -326,12 +326,10 @@ async function closeAll(){
       }
     }
   });
-  // Phase 3: remove only tiles that were either cancelled successfully or not busy
-  const removable=T.tiles.filter(t=>cancelled.has(t.id)||!t.busy);
-  const preserved=T.tiles.filter(t=>t.busy&&!cancelled.has(t.id));
-  removable.forEach(t=>{
-    if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
-  });
+  // Phase 3: remove tiles not being preserved (only in-flight-stream tiles whose cancellation failed)
+  const preserved=T.tiles.filter(t=>t.busy&&t.activeStreamId&&!cancelled.has(t.id));
+  const removable=T.tiles.filter(t=>!preserved.includes(t));
+  removable.forEach(t=>{if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}});
   T.tiles=[...preserved]; // keep failed-cancellation tiles
   if(preserved.length===0){T.activeId=null;T._tc={};document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove())}
 }
@@ -429,5 +427,6 @@ function init(){
   const mi=document.getElementById('msgInner');if(mi&&mi.parentNode)mi.parentNode.appendChild(T.grid);
   createToolbar();tbActive();initCapture();initKeyboard();initBadgeObserver();
 }
+// ── Boot ──
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();
