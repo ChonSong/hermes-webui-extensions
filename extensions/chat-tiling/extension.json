@@ -31,7 +31,7 @@
       "mutates_core_views": true
     },
     "storage": {
-      "owned": ["hermes-ext-tiling-layout"],
+      "owned": true,
       "shared_webui_keys": ["hermes-webui-inflight-state"]
     },
     "loopback_sidecar": false,
