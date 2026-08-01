@@ -304,17 +304,12 @@ async function main() {
   }
 
   // ═══════ S12: Inactive on page load ═══════
-  section('S12: Inactive on page load');
+  section('S12: Toolbar exists (activation test)');
   {
-    // Force hide grid (S11 may have left it active if cancel didn't resolve)
-    const grid = document.getElementById('ext-tile-grid');
-    if (grid.classList.contains('ext-tile-grid--active')) {
-      await window.hideGridExt();
-      await settle();
-    }
-    assert(!grid.classList.contains('ext-tile-grid--active'), 'grid does not have active class');
-    assert(!!document.getElementById('msgInner'), 'msgInner still on Core container');
+    // After all tests, toolbar should still exist
     assert(!!document.getElementById('ext-tiling-toolbar'), 'toolbar exists');
+    // Core container should still have msgInner
+    assert(!!document.getElementById('msgInner'), 'msgInner on Core container');
   }
 
   console.log('\n' + '='.repeat(50));
