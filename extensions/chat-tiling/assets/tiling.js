@@ -198,15 +198,7 @@ function toggleMax(id){
 async function closeTile(id){
   const tile=tid(id);if(!tile)return true;
   if(tile._closing)return true;
-  tile._closing=true;
-  if(tile.busy&&tile.activeStreamId&&typeof cancelSessionStream==='function'){
-    try {
-      const result=await cancelSessionStream({session_id:tile.session?tile.session.session_id:null,active_stream_id:tile.activeStreamId});
-      if(result===false){tile._closing=false;return false}
-    } catch(_){
-      tile._closing=false;return false;
-    }
-  }
+
   const t=tid(id);if(!t){return true;}
   if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){
     delete INFLIGHT[t.session.session_id];
