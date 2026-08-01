@@ -157,6 +157,9 @@ function focusTile(id,opts){
     updateHeader(tile);
   }
   startWatcher();
+  // Immediate sync of busy state from S to focused tile
+  if(S.messages&&S.messages.length>0)tile.messages=[...S.messages];tile.busy=!!S.busy;tile.activeStreamId=S.activeStreamId||null;
+  updateHeader(tile);
   if(typeof syncTopbar==='function')syncTopbar();
   if(typeof syncModelChip==='function')syncModelChip();
   updateHeader(tile);

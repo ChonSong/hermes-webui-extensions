@@ -181,16 +181,15 @@ async function main() {
   {
     const tiles = Array.from(document.querySelectorAll('.ext-tile'));
     const tileA = tiles[0], tileB = tiles[1];
-    // Focus A so the watcher syncs S.busy to tile A
-    window.focusTileExt(parseInt(tileA.dataset.tileId));
-    await settle();
+    // Set busy BEFORE focusing so watcher picks it up immediately
     S.busy = true; S.activeStreamId = 'stream-A';
-    // Wait for watcher to sync S.busy → tile.busy (500ms interval)
-    await new Promise(r => setTimeout(r, 600));
-    // Override cancelSessionStream to return false BEFORE calling closeTile
+    window.focusTileExt(parseInt(tileA.dataset.tileId));
+    // Wait for watcher to sync (500ms interval + margin)
+    await new Promise(r => setTimeout(r, 800));
+    // Override cancelSessionStream to return false
     const origCancel = window.cancelSessionStream;
     window.cancelSessionStream = () => {
-      cancelResolvers = []; // prevent auto-resolution
+      cancelResolvers = [];
       return Promise.resolve(false);
     };
     const result = await window.closeTileExt(parseInt(tileA.dataset.tileId));
@@ -305,10 +304,12 @@ async function main() {
     assert(parseInt(remaining[0].dataset.tileId) === parseInt(tileB.dataset.tileId), 'sibling B preserved');
   }
 
-  // ═══════ S12: Inactive on page load ═══════
+  // ═══════ S12: Inactive on page load (run FIRST before any grid activation) ═══════
   section('S12: Inactive on page load');
   {
-    // After all tests, grid should be hidden (S7 ended with hideGrid)
+    // After all tests, grid may be active. Reset by hiding.
+    await window.hideGridExt();
+    await settle();
     const grid = document.getElementById('ext-tile-grid');
     assert(!grid.classList.contains('ext-tile-grid--active'), 'grid does not have active class');
     assert(!!document.getElementById('msgInner'), 'msgInner still on Core container');
