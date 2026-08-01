@@ -352,9 +352,16 @@ async function hideGrid(){
   const savedComposer=focusedTile&&focusedTile.cv?focusedTile.cv:T._savedComposer;
   const savedModel=focusedTile&&focusedTile.mv?focusedTile.mv:T._savedModel;
   const s=T._saved;T._saved=null;
-  if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
-  if(restoreFrom&&restoreFrom.session_id&&typeof window.loadSession==='function'){
-    window.loadSession(restoreFrom.session_id,{skipExtHooks:true}).catch(()=>{})
+  // If we have a focused tile with a session, restore from it (async)
+  if(restoreFrom&&restoreFrom!==s&&restoreFrom.session_id&&typeof window.loadSession==='function'){
+    // Optimistic update: set S.session immediately so tests/loadSession handlers see correct state
+    S.session=restoreFrom;
+    S.messages=[...(focusedTile.messages||[])];
+    window.loadSession(restoreFrom.session_id,{skipExtHooks:true}).catch(()=>{
+      if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
+    })
+  } else {
+    if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
   }
   const cm=document.getElementById('msg');if(cm)cm.value=savedComposer||'';
   if(typeof autoResize==='function')autoResize();
