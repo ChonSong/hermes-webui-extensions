@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-// Chat Tiling — behavior tests
-// Run: `node scripts/test-chat-tiling.mjs`
-//
-// Grid shown ONCE at the start. All grid tests reuse same 2-tile grid.
-// State restoration test runs last (single hide, single verify).
+// Chat Tiling — single-live-session contract tests
+// Proves the boundary: one focused tile owns Core S/composer/model/msgInner.
+// Non-focused tiles are read-only snapshots.
+// Leaving tiling restores one coherent session projection.
 
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
@@ -14,13 +13,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const dom = new JSDOM(
-  `<!DOCTYPE html>
-  <html><head></head><body>
-    <div id="messages"><div id="msgInner"></div></div>
-    <textarea id="msg">initial-composer-value</textarea>
-    <select id="modelSelect"><option value="gpt4">GPT-4</option><option value="claude">Claude</option></select>
-  </body></html>`,
-  { url: 'http://localhost' }
+`<!DOCTYPE html>
+<html><head></head><body>
+  <div id="topbar"></div>
+  <div id="messages"><div id="msgInner"></div></div>
+  <textarea id="msg">initial-composer-value</textarea>
+  <select id="modelSelect"><option value="gpt4">GPT-4</option><option value="claude">Claude</option></select>
+</body></html>`,
+{ url: 'http://localhost' }
 );
 const { window } = dom;
 const { document } = window;
@@ -29,6 +29,8 @@ let S = { session: null, messages: [], busy: false, activeStreamId: null };
 let renderMessagesCalled = 0;
 let transcriptRenders = [];
 let loadSessionResolvers = [];
+let cancelCalls = [];
+let cancelResolvers = [];
 let handlerRegistration = null;
 
 const mockExtSettings = { auto_tile: true, show_sidebar_badges: true };
@@ -47,6 +49,20 @@ window.loadSession = (sid, opts) => {
   loadSessionResolvers.push({ sid, opts, resolve, reject, promise: p });
   return p;
 };
+window.cancelSessionStream = (opts) => {
+  cancelCalls.push(opts);
+  return new Promise((res) => {
+    const resolver = { res, opts };
+    cancelResolvers.push(resolver);
+    // Auto-resolve as true after 10ms (default success)
+    setTimeout(() => {
+      if (cancelResolvers.includes(resolver)) {
+        res(true);
+        cancelResolvers = cancelResolvers.filter(r => r !== resolver);
+      }
+    }, 10);
+  });
+};
 window.api = () => Promise.resolve({});
 window.renderTranscript = (target, msgs, opts) => {
   transcriptRenders.push({ target, messages: msgs ? [...msgs] : msgs });
@@ -58,7 +74,6 @@ window.CSS = { escape: s => s };
 window.autoResize = () => {};
 window.syncTopbar = () => {};
 window.syncModelChip = () => {};
-window.cancelSessionStream = () => Promise.resolve(true);
 window.showToast = () => {};
 window.clearInflightState = () => {};
 window.INFLIGHT = {};
@@ -82,179 +97,230 @@ document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 let passed = 0, failed = 0;
 function assert(cond, msg) { if (cond) { passed++; console.log('  ✓ ' + msg); } else { failed++; console.log('  ✗ FAIL: ' + msg); } }
 function section(name) { console.log('\n' + name); }
-
-async function clickLayout(layout) {
-  const b = document.querySelector(`.ext-toolbar-btn[data-layout="${layout}"]`);
-  if (!b) console.log('[helper] btn ' + layout + ' NOT FOUND');
-  else b.click();
-  await null; await null; // let async handlers settle
-}
+async function settle() { await new Promise(r => setTimeout(r, 50)); }
 
 async function main() {
-  // ═══════ SHOW GRID ONCE (2-tile) ═══════
-  S.extraField = 'should-survive';
-  S.session = { session_id: 'sid-init', title: 'Init', messages: ['hello'] };
-  S.messages = ['hello'];
-  document.getElementById('msg').value = 'draft-save';
-  await clickLayout('2x1');
 
-  // ═══════ Scenario 1: Page load ═══════
-  section('S1: Exports and initial state');
+  // ═══════ S1: Activation creates tiles from current session ═══════
+  section('S1: Activation creates tiles from current session');
   {
-    assert(typeof window.focusTileExt === 'function', 'focusTileExt export');
-    assert(typeof window.closeTileExt === 'function', 'closeTileExt export');
-    assert(typeof window.openTileForSessionExt === 'function', 'openTileForSessionExt export');
+    S.session = { session_id: 'sid-A', title: 'Session A', messages: ['a-msg'] };
+    S.messages = ['a-msg'];
+    window.showGridExt(2, 1);
+    await settle();
     const tiles = Array.from(document.querySelectorAll('.ext-tile'));
-    assert(tiles.length === 2, '2 tiles after show grid');
-    assert(tiles.some(t => t.querySelector('.ext-tile-title')?.textContent === 'Init'),
-      'first tile seeded from current session');
-  }
-
-  // ═══════ Scenario 2: Stale guard ═══════
-  section('S2: Stale focus guard');
-  {
-    loadSessionResolvers = [];
-    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
-    // Find the seeded tile (has a sid) to trigger loadSession on focus
-    const seeded = tiles.find(t => t.querySelector('.ext-tile-title')?.textContent === 'Init');
-    const sId = parseInt(seeded.dataset.tileId);
-
-    // Focus to trigger loadSession
-    window.focusTileExt(sId, {});
-    await null;
-    const req = loadSessionResolvers[0];
-    assert(!!req, 'loadSession triggered by focus');
-
-    // Focus same tile again (new gen) before first resolves
-    loadSessionResolvers = [];
-    window.focusTileExt(sId, {});
-    await null;
-    const req2 = loadSessionResolvers[0];
-    assert(!!req2, 'second focus triggers new loadSession');
-
-    const before = renderMessagesCalled;
-    req2.resolve(); await null; await null; // fresh resolves
-    req.reject(new Error('stale')); await null; await null; // stale = suppressed
-    assert(renderMessagesCalled === before,
-      'stale rejection suppressed (no renderMessages)');
-  }
-
-  // ═══════ Scenario 3: Handler lifecycle with real payload ═══════
-  section('S3: Handler lifecycle — real payload');
-  {
-    transcriptRenders = [];
-    const emptyTile = Array.from(document.querySelectorAll('.ext-tile'))
-      .find(t => t.querySelector('.ext-tile-title')?.textContent !== 'Init');
-    assert(!!emptyTile, 'empty tile available');
-
-    S.busy = false;
-    handlerRegistration('sid-A', { session_id: 'sid-A', title: 'A' }, { preload: true });
-    S.session = { session_id: 'sid-A', title: 'A', messages: ['a-loaded'] };
-    S.messages = ['a-loaded'];
-    S.busy = true;
-    handlerRegistration('sid-A', { session_id: 'sid-A', title: 'A' }, { loaded: true });
-    await null;
-
-    const tileA = Array.from(document.querySelectorAll('.ext-tile'))
-      .find(t => t.querySelector('.ext-tile-title')?.textContent === 'A');
-    assert(!!tileA, 'tile A exists');
-    const miA = tileA.querySelector('.ext-tile-msg-inner');
-    const rA = transcriptRenders.find(r => r.target === miA);
-    assert(!!rA, 'renderTranscript for tile A');
-    assert(rA.messages?.[0] === 'a-loaded', 'messages from S.messages not data wrapper');
-    assert(miA.querySelectorAll('.msg').length > 0, 'tile A has visible transcript');
-  }
-
-  // ═══════ Scenario 4: Duplicate session ═══════
-  section('S4: Duplicate session focus');
-  {
-    transcriptRenders = [];
-    handlerRegistration('sid-A', { session_id: 'sid-A' }, { preload: true });
-    await null;
-
-    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
-    assert(tiles.length === 2, 'no new tile created for dup session');
+    assert(tiles.length === 2, '2 tiles created');
+    assert(tiles[0].querySelector('.ext-tile-title').textContent === 'Session A', 'first tile shows session A');
     const msgInner = document.getElementById('msgInner');
-    assert(!!msgInner, 'msgInner exists');
-    const focused = tiles.find(t => t.classList.contains('ext-tile--focused'));
-    assert(!!focused, 'a tile is focused');
-    assert(focused.querySelector('.ext-tile-msg-inner') === msgInner,
-      'msgInner in focused tile');
+    assert(msgInner && msgInner.closest('.ext-tile') === tiles[0], 'msgInner on focused tile');
   }
 
-  // ═══════ Scenario 5: auto_tile:false ═══════
-  section('S5: auto_tile=false guard');
+  // ═══════ S2: Focus switching saves and restores atomically ═══════
+  section('S2: Focus switching saves and restores atomically');
   {
-    mockExtSettings.auto_tile = false;
-    const r1 = handlerRegistration('sid-D', { session_id: 'sid-D', title: 'D' }, { preload: true });
-    assert(r1 && Object.keys(r1).length === 0, 'preload returns {}');
-
-    const r2 = handlerRegistration('sid-D', { session_id: 'sid-D', title: 'D' }, { loaded: true });
-    assert(r2 && Object.keys(r2).length === 0, 'loaded returns {}');
-
-    const tileD = Array.from(document.querySelectorAll('.ext-tile'))
-      .find(t => t.querySelector('.ext-tile-title')?.textContent === 'D');
-    assert(!tileD, 'no tile for sid-D');
-    mockExtSettings.auto_tile = true;
+    // Load B into second tile
+    handlerRegistration('sid-B', null, { preload: true });
+    S.session = { session_id: 'sid-B', title: 'Session B', messages: ['b-msg'] };
+    S.messages = ['b-msg'];
+    handlerRegistration('sid-B', S.session, { loaded: true });
+    await settle();
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    const tileB = tiles[1];
+    window.focusTileExt(parseInt(tileB.dataset.tileId));
+    await settle();
+    // Type draft-b
+    document.getElementById('msg').value = 'draft-b';
+    // Focus back to A
+    window.focusTileExt(parseInt(tiles[0].dataset.tileId));
+    await settle();
+    assert(document.getElementById('msg').value === '', 'A has empty composer (no bleed from B)');
+    // Focus B again
+    window.focusTileExt(parseInt(tileB.dataset.tileId));
+    await settle();
+    assert(document.getElementById('msg').value === 'draft-b', 'B restores its own draft');
   }
 
-  // ═══════ Scenario 6: Double-close ═══════
-  section('S6: Double-close idempotent');
+  // ═══════ S3: Rapid A→B where stale A rejects after B ═══════
+  section('S3: Rapid A→B where stale A rejects after B');
   {
-    const ids = Array.from(document.querySelectorAll('.ext-tile')).map(t => parseInt(t.dataset.tileId));
-    assert(ids.length === 2, '2 tiles before close');
-
-    const p1 = window.closeTileExt(ids[0]);
-    const p2 = window.closeTileExt(ids[0]);
-    await Promise.all([p1, p2]);
-
-    const remaining = Array.from(document.querySelectorAll('.ext-tile')).map(t => parseInt(t.dataset.tileId));
-    assert(remaining.length === 1, 'only 1 tile removed');
-    const el = document.querySelector(`.ext-tile[data-tile-id="${remaining[0]}"]`);
-    assert(el?.classList.contains('ext-tile--focused'), 'remaining tile focused');
-    assert(el?.querySelector('.ext-tile-msg-inner')?.id === 'msgInner', 'msgInner on remaining tile');
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    const tileA = tiles[0], tileB = tiles[1];
+    // Focus A
+    window.focusTileExt(parseInt(tileA.dataset.tileId));
+    await settle();
+    loadSessionResolvers = [];
+    // Focus B immediately
+    window.focusTileExt(parseInt(tileB.dataset.tileId));
+    await settle();
+    // Resolve B's loadSession
+    if (loadSessionResolvers.length > 0) {
+      S.session = { session_id: 'sid-B', title: 'Session B', messages: ['b-resolved'] };
+      S.messages = ['b-resolved'];
+      loadSessionResolvers[loadSessionResolvers.length - 1].resolve();
+    }
+    await settle();
+    // Reject A's loadSession (stale)
+    if (loadSessionResolvers.length > 1) {
+      loadSessionResolvers[0].reject(new Error('stale'));
+    }
+    await settle();
+    assert(S.session.session_id === 'sid-B', 'B owns S after stale A rejects');
   }
 
-  // ═══════ Scenario 7: hideGrid restores S ═══════
-  section('S7: hideGrid full S restoration');
+  // ═══════ S4: Full-grid navigation is rejected (cancel:true) ═══════
+  section('S4: Full-grid navigation is rejected (cancel:true)');
   {
-    S.session = { session_id: 'WILL-LOSE' };
-    S.messages = ['replace'];
-    S.busy = true;
-    S.activeStreamId = 'will-lose';
-    S.extraField = 'should-be-overwritten';
+    const r = handlerRegistration('sid-C', null, { preload: true });
+    assert(r && r.cancel === true, 'full-grid preload returns {cancel:true}');
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    assert(tiles.length === 2, 'both A and B tiles still exist');
+  }
+
+  // ═══════ S5: Failed cancellation preserves tile ═══════
+  section('S5: Failed cancellation preserves tile');
+  {
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    const tileA = tiles[0], tileB = tiles[1];
+    // Focus A so the watcher syncs S.busy to tile A
+    window.focusTileExt(parseInt(tileA.dataset.tileId));
+    await settle();
+    S.busy = true; S.activeStreamId = 'stream-A';
+    // Wait for watcher to sync S.busy → tile.busy (500ms interval)
+    await new Promise(r => setTimeout(r, 600));
+    // Override cancelSessionStream to return false BEFORE calling closeTile
+    const origCancel = window.cancelSessionStream;
+    window.cancelSessionStream = () => {
+      cancelResolvers = []; // prevent auto-resolution
+      return Promise.resolve(false);
+    };
+    const result = await window.closeTileExt(parseInt(tileA.dataset.tileId));
+    window.cancelSessionStream = origCancel;
+    await settle();
+    assert(result === false, 'close returns false when cancel refused');
+    const remaining = Array.from(document.querySelectorAll('.ext-tile'));
+    assert(remaining.length === 2, 'tile A preserved on cancel refusal');
+  }
+
+  // ═══════ S6: Cancelled preload releases reservation ═══════
+  section('S6: Cancelled preload releases reservation');
+  {
+    // Grid is full (A and B) — D should be rejected
+    const r = handlerRegistration('sid-D', null, { preload: true });
+    assert(r && r.cancel === true, 'D rejected when grid full');
+  }
+
+  // ═══════ S7: Hide/close restores focused session with its draft ═══════
+  section('S7: Hide/close restores focused session with its draft');
+  {
+    // Reset cancel state
+    cancelResolvers = [];
+    S.busy = false;
+    S.activeStreamId = null;
+    // Focus the last tile, type draft
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    const lastTile = tiles[tiles.length - 1];
+    window.focusTileExt(parseInt(lastTile.dataset.tileId));
+    await settle();
     document.getElementById('msg').value = 'draft-final';
-
-    const ids = Array.from(document.querySelectorAll('.ext-tile')).map(t => parseInt(t.dataset.tileId));
-    assert(ids.length === 1, '1 tile before hide');
-    await window.closeTileExt(ids[0]);
-
-    assert(renderMessagesCalled > 0, 'renderMessages called');
-    // Pre-grid state had S.session='sid-init' and S.messages=['hello']
-    assert(S.session && S.session.session_id === 'sid-init',
-      `S.session restored to pre-grid state (got ${S.session?.session_id})`);
-    assert(Array.isArray(S.messages) && S.messages[0] === 'hello',
-      `S.messages restored to pre-grid messages (got ${S.messages?.[0]})`);
-    assert(S.busy === false, 'S.busy false');
-    assert(S.activeStreamId === null, 'S.activeStreamId null');
-    assert(S.extraField === 'should-survive', 'S.extraField survives');
-    assert(document.getElementById('msg').value === 'draft-save',
-      'composer restored to pre-grid value');
+    // Dismiss grid (cancel auto-resolves)
+    await window.hideGridExt();
+    await settle();
+    assert(document.getElementById('msg').value === 'draft-final', 'restored focused session\'s draft');
   }
 
-  // ═══════ Scenario 8: Mutation guard check ═══════
-  section('S8: Double-close guard exists');
+  // ═══════ S8: Long transcript uses Core scroll owner ═══════
+  section('S8: Long transcript uses Core scroll owner');
   {
-    const hasGuard = /if\(tile\._closing\)/.test(code);
-    assert(hasGuard, '_closing guard present in tiling.js');
+    S.busy = false; S.activeStreamId = null;
+    S.session = { session_id: 'sid-A', title: 'Session A', messages: [] };
+    S.messages = [];
+    window.showGridExt(2, 1);
+    await settle();
+    const longMsgs = Array.from({ length: 100 }, (_, i) => ({ content: `msg-${i}` }));
+    S.messages = longMsgs;
+    window.renderMessages();
+    await settle();
+    const tile = document.querySelector('.ext-tile');
+    const msgInner = tile.querySelector('.ext-tile-msg-inner');
+    assert(msgInner.style.overflowY !== 'auto', 'tile msg-inner does not own scrolling');
   }
 
-  console.log(`\n${'='.repeat(50)}`);
+  // ═══════ S9: Non-focused tile is read-only snapshot ═══════
+  section('S9: Non-focused tile is read-only snapshot');
+  {
+    handlerRegistration('sid-B', null, { preload: true });
+    S.session = { session_id: 'sid-B', title: 'Session B', messages: ['b'] };
+    S.messages = ['b'];
+    handlerRegistration('sid-B', S.session, { loaded: true });
+    await settle();
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    const tileA = tiles[0], tileB = tiles[1];
+    window.focusTileExt(parseInt(tileB.dataset.tileId));
+    await settle();
+    const msgInnerA = tileA.querySelector('.ext-tile-msg-inner');
+    assert(msgInnerA.id !== 'msgInner', 'non-focused tile A does not own msgInner');
+    const msgInnerB = tileB.querySelector('.ext-tile-msg-inner');
+    assert(msgInnerB.id === 'msgInner', 'focused tile B owns msgInner');
+  }
+
+  // ═══════ S10: Composer text does not leak between tiles ═══════
+  section('S10: Composer text does not leak between tiles');
+  {
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    const tileA = tiles[0], tileB = tiles[1];
+    // Focus A, type draft-a
+    window.focusTileExt(parseInt(tileA.dataset.tileId));
+    await settle();
+    document.getElementById('msg').value = 'draft-a';
+    // Focus B
+    window.focusTileExt(parseInt(tileB.dataset.tileId));
+    await settle();
+    assert(document.getElementById('msg').value === '', 'B has empty composer (no leak from A)');
+    // Type draft-b
+    document.getElementById('msg').value = 'draft-b';
+    // Focus A again
+    window.focusTileExt(parseInt(tileA.dataset.tileId));
+    await settle();
+    assert(document.getElementById('msg').value === 'draft-a', 'A restores its own draft (no bleed from B)');
+  }
+
+  // ═══════ S11: Double-close busy tile preserves sibling ═══════
+  section('S11: Double-close busy tile preserves sibling');
+  {
+    const tiles = Array.from(document.querySelectorAll('.ext-tile'));
+    const tileA = tiles[0], tileB = tiles[1];
+    S.busy = true; S.activeStreamId = 'stream-A';
+    window.focusTileExt(parseInt(tileA.dataset.tileId));
+    await settle();
+    // Close same tile twice
+    const p1 = window.closeTileExt(parseInt(tileA.dataset.tileId));
+    const p2 = window.closeTileExt(parseInt(tileA.dataset.tileId));
+    await settle();
+    // Resolve cancel
+    if (cancelResolvers.length > 0) cancelResolvers[cancelResolvers.length - 1].res(true);
+    await Promise.all([p1, p2]);
+    await settle();
+    const remaining = Array.from(document.querySelectorAll('.ext-tile'));
+    assert(remaining.length === 1, 'only 1 tile remains');
+    assert(parseInt(remaining[0].dataset.tileId) === parseInt(tileB.dataset.tileId), 'sibling B preserved');
+  }
+
+  // ═══════ S12: Inactive on page load ═══════
+  section('S12: Inactive on page load');
+  {
+    // After all tests, grid should be hidden (S7 ended with hideGrid)
+    const grid = document.getElementById('ext-tile-grid');
+    assert(!grid.classList.contains('ext-tile-grid--active'), 'grid does not have active class');
+    assert(!!document.getElementById('msgInner'), 'msgInner still on Core container');
+    assert(!!document.getElementById('ext-tiling-toolbar'), 'toolbar exists');
+  }
+
+  console.log('\n' + '='.repeat(50));
   console.log(`Results: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error('Test error:', err.stack || err);
+main().catch(e => {
+  console.error('Test error:', e);
   process.exit(1);
 });

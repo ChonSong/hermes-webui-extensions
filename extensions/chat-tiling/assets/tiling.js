@@ -1,9 +1,19 @@
-// Chat Tiling — multi-session tile grid for Hermes WebUI
+// Chat Tiling — single-live-session view with rendered session snapshots
 // Stable API consumer: registerHermesSessionOpenHandler + renderTranscript
 // Requires WebUI >= 2026-07.18 (the release that shipped these hooks)
+//
+// ARCHITECTURE:
+// - Exactly one tile is live at any time: it owns Core S, composer, model, active stream, #msgInner.
+// - Non-focused tiles are read-only rendered snapshots.
+// - Focus switches save outgoing tile state and restore incoming tile state atomically.
+// - Leaving tiling restores one coherent session projection from the focused tile.
+// - Full-grid navigation is rejected (returns {cancel:true}).
+// - Core owns its #messages scrolling lifecycle; the extension does not compete.
 
 (()=>{
 'use strict';
+
+const S = (typeof window!=='undefined'&&window.S)?window.S:{};
 
 // ── Feature detection ──
 function hasStableApi(){
@@ -15,7 +25,7 @@ function hasStableApi(){
 // ── CSS (inlined) ──
 function injectCss(){
   if(document.getElementById('ext-tiling-css'))return;
-  document.head.appendChild(Object.assign(document.createElement('style'),{id:'ext-tiling-css',textContent:`
+  document.head.appendChild(Object.assign(document.createElement('style'),{id:'ext-tile-css',textContent:`
 #ext-tile-grid{position:relative;overflow:hidden;display:none;flex:1 1 0%;min-height:0;min-width:0;gap:4px;padding:4px;background:var(--bg)}
 #ext-tile-grid.ext-tile-grid--active{display:grid;align-items:normal;justify-content:normal;border-top:2px solid var(--accent)}
 body.ext-tiling-body #messages>:not(#ext-tile-grid):not([aria-live]):not([role=status]){display:none!important}
@@ -34,8 +44,7 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-tile-btn[hidden]{display:none!important}
 .ext-tile-btn:hover{background:var(--hover-bg);color:var(--text)}
 .ext-tile-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
-.ext-tile-msg-inner{flex:1;min-height:0;overflow-y:auto;padding:0;scroll-behavior:smooth;display:flex;flex-direction:column}
-@media (prefers-reduced-motion: no-preference){.ext-tile-msg-inner{scroll-behavior:smooth}}
+.ext-tile-msg-inner{flex:1;min-height:0;padding:0;display:flex;flex-direction:column}
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent);color:var(--accent-text,#fff);font-size:10px;font-weight:700;line-height:1;margin-left:4px;vertical-align:middle}
 #ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative}
 #ext-tiling-toolbar.ext-tiling-toolbar--visible{display:flex}
@@ -51,8 +60,25 @@ body.ext-tiling-body #messages{overflow:hidden}
 }
 
 // ── State ──
-const T={tiles:[],activeId:null,nextId:1,grid:null,tb:null,visible:false,_w:null,_tc:{},_saved:null,_savedComposer:null,_savedModel:null,pendingTile:null,pendingTimer:null,_actGen:0};
-const tid=i=>T.tiles.find(t=>t.id===i),bySid=s=>T.tiles.find(t=>t.sid===s),at=()=>tid(T.activeId);
+const T={
+  tiles:[],
+  activeId:null,
+  nextId:1,
+  grid:null,
+  tb:null,
+  visible:false,
+  _w:null,
+  _tc:{},
+  _saved:null,
+  _savedComposer:'',
+  _savedModel:'',
+  pendingTile:null,
+  pendingTimer:null,
+  _actGen:0
+};
+const tid=i=>T.tiles.find(t=>t.id===i);
+const bySid=s=>T.tiles.find(t=>t.sid===s);
+const at=()=>tid(T.activeId);
 const gs=(k,d)=>{try{const w=window.HermesExtensionSettings;if(w){const x=w.settingsForExtension('chat-tiling');if(x.get(k)!=null)return x.get(k)}}catch(_){}return d};
 
 // ── Composer save/restore ──
@@ -68,13 +94,13 @@ function rc(t){
 
 // ── SVG icons ──
 const Svg={
-max:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
-unmax:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
-close:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-tb2:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>',
-tb4:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>',
-tb6:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="8" rx="1"/><rect x="8.5" y="3" width="5" height="8" rx="1"/><rect x="15" y="3" width="5" height="8" rx="1"/><rect x="2" y="13" width="5" height="8" rx="1"/><rect x="8.5" y="13" width="5" height="8" rx="1"/><rect x="15" y="13" width="5" height="8" rx="1"/></svg>',
-tbX:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+  max:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+  unmax:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+  close:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  tb2:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>',
+  tb4:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>',
+  tb6:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="5" height="8" rx="1"/><rect x="8.5" y="3" width="5" height="8" rx="1"/><rect x="15" y="3" width="5" height="8" rx="1"/><rect x="2" y="13" width="5" height="8" rx="1"/><rect x="8.5" y="13" width="5" height="8" rx="1"/><rect x="15" y="13" width="5" height="8" rx="1"/></svg>',
+  tbX:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
 };
 
 // ── Tile element creation ──
@@ -104,55 +130,51 @@ function focusTile(id,opts){
   opts=opts||{};
   const tile=tid(id);if(!tile)return;
   const gen=++T._actGen;
-  // Save outgoing tile state
-  if(!opts.alreadyLoaded&&T.activeId&&T.activeId!==id){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
-  // Swap msgInner ID
+  const outgoing=at();
+  if(outgoing&&outgoing.id!==id){
+    sc(outgoing);
+  }
   const cur=document.getElementById('msgInner');if(cur)cur.removeAttribute('id');
   T.activeId=id;
   T.tiles.forEach(t=>{if(t.el)t.el.classList.toggle('ext-tile--focused',t.id===id)});
   const ni=tile.el&&tile.el.querySelector('.ext-tile-msg-inner');if(ni)ni.id='msgInner';
   tile.el&&tile.el.focus();
   tile.el&&tile.el.setAttribute('aria-label',`Chat tile ${id} — focused`);
-  // Restore incoming tile
-  if(!opts.alreadyLoaded){
-    if(tile.sid&&typeof window.loadSession==='function'){
-      window.loadSession(tile.sid,{skipExtHooks:true}).then(()=>{
-        if(gen!==T._actGen)return; // stale activation, discard
-        if(typeof S!=='undefined'){tile.messages=[...(S.messages||[])];tile.busy=!!S.busy;tile.activeStreamId=S.activeStreamId||null;tile.session=S.session}
-        renderMsgs(tile);updateHeader(tile);
-      }).catch(()=>{
-        if(gen!==T._actGen)return; // stale activation, don't restore
-        restoreFromTile(tile);
-      });
-    } else {
-      restoreFromTile(tile);
-    }
-  }
   rc(tile);
+  if(tile.session&&tile.session.session_id&&typeof window.loadSession==='function'){
+    window.loadSession(tile.session.session_id,{skipExtHooks:true}).then(()=>{
+      if(gen!==T._actGen)return;
+      tile.messages=[...(S.messages||[])];
+      tile.busy=!!S.busy;
+      tile.activeStreamId=S.activeStreamId||null;
+      tile.session=S.session;
+      updateHeader(tile);
+    }).catch(()=>{
+      if(gen!==T._actGen)return;
+      updateHeader(tile);
+    });
+  } else {
+    updateHeader(tile);
+  }
+  startWatcher();
   if(typeof syncTopbar==='function')syncTopbar();
   if(typeof syncModelChip==='function')syncModelChip();
-  updateHeader(tile);startWatcher();
+  updateHeader(tile);
 }
 
-function restoreFromTile(tile){
-  if(typeof S!=='undefined'){S.session=tile.session;S.messages=[...(tile.messages||[])];S.busy=!!tile.busy;S.activeStreamId=tile.activeStreamId||null}
-  if(typeof renderMessages==='function')renderMessages();
+function renderSnapshot(t){
+  const mi=t.el&&t.el.querySelector('.ext-tile-msg-inner');if(!mi)return;
+  window.renderTranscript(mi,t.messages||[],{skipEmpty:false});
 }
 
 // ── Open session in tile ──
 function openTile(sid,data){
-  if(!sid)return;const e=bySid(sid);if(e){focusTile(e.id);return}
-  const t=T.tiles.find(t=>!t.sid&&!t._pending);if(!t){typeof showToast==='function'&&showToast('All tiles in use. Close one first.',3e3,'error');return}
+  if(!sid)return;
+  const e=bySid(sid);if(e){focusTile(e.id);return}
+  const t=T.tiles.find(t=>!t.sid&&!t._pending);
+  if(!t){typeof showToast==='function'&&showToast('All tiles in use. Close one first.',3e3,'error');return}
   t.sid=sid;t.session=data||null;t.messages=(data&&data.messages)||[];t.cv='';t.mv=null;
-  updateHeader(t);badge(sid,1);renderMsgs(t);focusTile(t.id);
-  if(!t.messages.length&&sid){(async()=>{try{const f=await window.api(`/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`);if(f&&f.messages){t.messages=f.messages||[];t.session=f;if(T.activeId===t.id&&typeof S!=='undefined'){S.messages=t.messages;S.session=t.session}renderMsgs(t);updateHeader(t)}}catch(_){}})()}
-}
-
-// ── Render messages ──
-function renderMsgs(t){
-  const mi=t.el&&t.el.querySelector('.ext-tile-msg-inner');if(!mi)return;
-  window.renderTranscript(mi,t.messages||[],{skipEmpty:false});
-  if(mi.scrollTop!==undefined){const atBot=mi.scrollHeight-mi.scrollTop-mi.clientHeight<50;if(atBot)mi.scrollTop=mi.scrollHeight}
+  updateHeader(t);badge(sid,1);renderSnapshot(t);focusTile(t.id);
 }
 
 // ── Maximize / Unmaximize ──
@@ -169,33 +191,34 @@ function toggleMax(id){
   refreshGrid();
 }
 
-// ── Close tile (async — returns true on success, false if preserved) ──
+// ── Close tile (async) ──
 async function closeTile(id){
   const tile=tid(id);if(!tile)return true;
-  if(tile._closing)return true; // idempotent — prevent double-close race
+  if(tile._closing)return true;
   tile._closing=true;
-  // Phase 1: cancel in-flight stream (Core contract — preserve INFLIGHT on failure)
   if(tile.busy&&tile.activeStreamId&&typeof cancelSessionStream==='function'){
     try {
       const result=await cancelSessionStream({session_id:tile.session?tile.session.session_id:null,active_stream_id:tile.activeStreamId});
-      if(result===false){tile._closing=false;return false} // cancellation refused — preserve tile
+      if(result===false){tile._closing=false;return false}
     } catch(_){
-      tile._closing=false;return false; // cancellation failed — preserve tile and recovery state
+      tile._closing=false;return false;
     }
   }
-  // Phase 2: clear ownership only on successful cancellation
-  if(tile.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[tile.session.session_id]){
-    delete INFLIGHT[tile.session.session_id];
-    typeof clearInflightState==='function'&&clearInflightState(tile.session.session_id);
+  const t=tid(id);if(!t){return true;}
+  if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){
+    delete INFLIGHT[t.session.session_id];
+    typeof clearInflightState==='function'&&clearInflightState(t.session.session_id);
   }
-  // Phase 3: re-find by id after await — array may have shifted
-  const t=tid(id);if(!t)return true;
   const idx=T.tiles.indexOf(t);if(idx<0)return true;
   if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
   T.tiles.splice(idx,1);
   if(t.maximized){T.tiles.forEach(x=>{x.maximized=false;if(x.el){x.el.classList.remove('ext-tile--hidden','ext-tile--maximized');x.el.querySelector('.ext-tile-maximize-btn').hidden=false;x.el.querySelector('.ext-tile-unmaximize-btn').hidden=true}})}
   if(t.sid)badge(t.sid,-1);
-  if(T.activeId===id){T.activeId=null;const n=T.tiles[0];if(n)focusTile(n.id);else await hideGrid()}
+  if(T.activeId===id){
+    T.activeId=null;
+    if(T.tiles.length===0) await hideGrid();
+    else {const n=T.tiles[0];if(n)focusTile(n.id);}
+  }
   refreshGrid();tbActive();
   return true;
 }
@@ -210,19 +233,22 @@ function refreshGrid(){
 // ── Busy watcher ──
 function startWatcher(){stopWatcher();T._w=setInterval(()=>{
   const t=at();if(!t||T.activeId===null){stopWatcher();return}
-  if(typeof S!=='undefined'){if(S.messages&&S.messages.length>0)t.messages=[...S.messages];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;if(!S.busy&&t.session)t.session=S.session}
+  if(S.messages&&S.messages.length>0)t.messages=[...S.messages];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;if(!S.busy&&t.session)t.session=S.session;
   updateHeader(t);
 },500)}
 function stopWatcher(){T._w&&(clearInterval(T._w),T._w=null)}
 
 // ── Sidebar badge ──
+let _badgeStateHash='';
 function badge(sid,delta){
   if(!sid)return;
   T._tc[sid]=(T._tc[sid]||0)+delta;
   applyBadges();
 }
-
 function applyBadges(){
+  const hash=JSON.stringify(T._tc);
+  if(hash===_badgeStateHash)return;
+  _badgeStateHash=hash;
   if(T._badgeObs)T._badgeObs.disconnect();
   document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove());
   Object.entries(T._tc).forEach(([sid,count])=>{
@@ -238,7 +264,6 @@ function applyBadges(){
   });
   if(T._badgeObs&&T._badgeSidebar)T._badgeObs.observe(T._badgeSidebar,{childList:true,subtree:true});
 }
-
 function initBadgeObserver(){
   T._badgeSidebar=document.querySelector('.session-list')||document.querySelector('[data-session-list]');
   if(!T._badgeSidebar)return;
@@ -249,129 +274,149 @@ function initBadgeObserver(){
 // ── Show / Hide grid ──
 async function showGrid(cols,rows){
   if(T.visible&&T._cols===cols&&T._rows===rows)return;
-  if(T.visible)await closeAll();
+  if(T.visible){await switchLayout(cols,rows);return}
   T._cols=cols;T._rows=rows;T.visible=true;
-  if(typeof S!=='undefined'&&!T._saved){T._saved={...S};const cm=document.getElementById('msg');T._savedComposer=cm?cm.value:'';const ms=document.getElementById('modelSelect');T._savedModel=ms?ms.value:''}
+  if(!T._saved){
+    T._saved={...S};
+    const cm=document.getElementById('msg');T._savedComposer=cm?cm.value:'';
+    const ms=document.getElementById('modelSelect');T._savedModel=ms?ms.value:'';
+  }
   const o=document.getElementById('msgInner');if(o){o.removeAttribute('id');o.classList.add('messages-inner--idle')}
   document.body.classList.add('ext-tiling-body');
   T.grid.style.display='';T.grid.classList.add('ext-tile-grid--active');
   T.grid.style.gridTemplateColumns=`repeat(${cols},1fr)`;T.grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
-  if(T.tiles.length)await closeAll();
   for(let i=0;i<cols*rows;i++){
     const t={id:T.nextId++,sid:null,session:null,messages:[],busy:false,activeStreamId:null,maximized:false,_closing:false,_pending:false,el:null,cv:'',mv:null};
     T.tiles.push(t);t.el=createTile(t);T.grid.appendChild(t.el);updateHeader(t)
   }
-  // Seed first tile from current session (BREAKAGE #1 fix — blank first activation)
-  if(typeof S!=='undefined'&&S.session&&S.session.session_id&&T.tiles.length>0){
+  if(S.session&&S.session.session_id&&T.tiles.length>0){
     const t=T.tiles[0];
     t.sid=S.session.session_id;t.session=S.session;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;
-    t._pending=true; // mark as reserved so preload doesn't over-assign
-    updateHeader(t);renderMsgs(t);
+    updateHeader(t);focusTile(t.id);
+  } else if(T.tiles.length>0){
+    focusTile(T.tiles[0].id);
   }
-  refreshGrid();T.tiles.length>0&&focusTile(T.tiles[0].id);
-  tbActive();try{localStorage.setItem('hermes-ext-tiling-layout',`${cols}x${rows}`)}catch(_){}
+  refreshGrid();tbActive();
+  try{localStorage.setItem('hermes-ext-tiling-layout',`${cols}x${rows}`)}catch(_){}
+}
+
+async function switchLayout(cols,rows){
+  const totalSlots=cols*rows;
+  if(T.tiles.length>totalSlots){
+    const toClose=T.tiles.slice(totalSlots);
+    const focusedTile=at();
+    if(focusedTile&&toClose.includes(focusedTile)){
+      const survivor=T.tiles.find(t=>!toClose.includes(t));
+      if(survivor)focusTile(survivor.id);
+    }
+    for(const t of toClose){await closeTile(t.id)}
+  }
+  T._cols=cols;T._rows=rows;
+  T.tiles.forEach(t=>{if(t.maximized){t.maximized=false;if(t.el){t.el.classList.remove('ext-tile--maximized','ext-tile--hidden');t.el.querySelector('.ext-tile-maximize-btn').hidden=false;t.el.querySelector('.ext-tile-unmaximize-btn').hidden=true}}});
+  refreshGrid();
+  while(T.tiles.length<totalSlots){
+    const t={id:T.nextId++,sid:null,session:null,messages:[],busy:false,activeStreamId:null,maximized:false,_closing:false,_pending:false,el:null,cv:'',mv:null};
+    T.tiles.push(t);t.el=createTile(t);T.grid.appendChild(t.el);updateHeader(t)
+  }
+  if(T.tiles.length>0)focusTile(T.tiles[0].id);
+  tbActive();
+  try{localStorage.setItem('hermes-ext-tiling-layout',`${cols}x${rows}`)}catch(_){}
 }
 
 async function hideGrid(){
   if(!T.visible&&!T._saved){tbActive();return}
   T.visible=false;stopWatcher();
+  const focusedTile=at();
+  if(T.activeId){const la=at();if(la){sc(la)}}
+  await closeAll();
+  if(T.tiles.length>0){
+    T.visible=true;
+    document.body.classList.add('ext-tiling-body');
+    T.grid.classList.add('ext-tile-grid--active');
+    document.querySelectorAll('.ext-tile-msg-inner[id="msgInner"]').forEach(el=>el.removeAttribute('id'));
+    const o=document.querySelector('#messages>.messages-inner--idle');if(o){o.id='msgInner';o.classList.remove('messages-inner--idle')}
+    const first=T.tiles[0];
+    if(first&&first.el){const ni=first.el.querySelector('.ext-tile-msg-inner');if(ni)ni.id='msgInner'}
+    T.activeId=first?first.id:null;
+    refreshGrid();tbActive();startWatcher();
+    return;
+  }
   document.querySelectorAll('.ext-tile-msg-inner[id="msgInner"]').forEach(el=>el.removeAttribute('id'));
   const o=document.querySelector('#messages>.messages-inner--idle');if(o){o.id='msgInner';o.classList.remove('messages-inner--idle')}
-  document.body.classList.remove('ext-tiling-body');
-  // Save last tile's composer before closeAll destroys it — must snapshot first
-  if(T.activeId){const la=at();if(la){sc(la);T._savedComposer=la.cv||T._savedComposer||'';T._savedModel=la.mv||T._savedModel||''}}
-  await closeAll();
   T.grid.style.display='none';T.grid.classList.remove('ext-tile-grid--active');
-  // Restore S from pre-grid snapshot synchronously
-  if(typeof S!=='undefined'){
-    const s=T._saved;T._saved=null;
-    if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
-    // Fire-and-forget Core native hydration (don't block on it)
-    if(s&&s.session&&s.session.session_id&&typeof window.loadSession==='function'){
-      window.loadSession(s.session.session_id,{skipExtHooks:true}).catch(()=>{})
-    }
+  document.body.classList.remove('ext-tiling-body');
+  const restoreFrom=focusedTile&&focusedTile.session?focusedTile.session:T._saved;
+  const savedComposer=focusedTile&&focusedTile.cv?focusedTile.cv:T._savedComposer;
+  const savedModel=focusedTile&&focusedTile.mv?focusedTile.mv:T._savedModel;
+  const s=T._saved;T._saved=null;
+  if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
+  if(restoreFrom&&restoreFrom.session_id&&typeof window.loadSession==='function'){
+    window.loadSession(restoreFrom.session_id,{skipExtHooks:true}).catch(()=>{})
   }
-  // Restore composer and model select
-  const cm=document.getElementById('msg');if(cm)cm.value=T._savedComposer||'';
-  const ms=document.getElementById('modelSelect');if(ms&&T._savedModel)ms.value=T._savedModel;
+  const cm=document.getElementById('msg');if(cm)cm.value=savedComposer||'';
+  if(typeof autoResize==='function')autoResize();
+  const ms=document.getElementById('modelSelect');if(ms&&savedModel&&ms.value!==savedModel)ms.value=savedModel;
   T._savedComposer=null;T._savedModel=null;
   if(typeof renderMessages==='function')renderMessages();
-  if(typeof syncTopbar==='function')syncTopbar();tbActive();
+  if(typeof syncTopbar==='function')syncTopbar();
+  if(typeof syncModelChip==='function')syncModelChip();
+  tbActive();
   try{localStorage.removeItem('hermes-ext-tiling-layout')}catch(_){}
 }
 
 async function closeAll(){
-  // Phase 1: collect busy tiles and attempt cancellation (Core contract — preserve on failure)
   const busy=T.tiles.filter(t=>t.busy&&t.activeStreamId);
   const results=await Promise.allSettled(busy.map(t=>{
     if(typeof cancelSessionStream==='function'){
       return cancelSessionStream({session_id:t.session?t.session.session_id:null,active_stream_id:t.activeStreamId})
-        .then(r=>{if(r===false)throw new Error('cancellation-refused');return t})
-        .catch(e=>{throw e});
     }
-    return Promise.resolve(t);
+    return true;
   }));
-  const cancelled=new Set();
-  results.forEach(r=>{if(r.status==='fulfilled')cancelled.add(r.value.id)});
-  // Phase 2: only clear INFLIGHT for successfully cancelled busy tiles
-  T.tiles.forEach(t=>{
-    if(t.busy&&t.activeStreamId&&!cancelled.has(t.id)){
-      // Cancellation failed — preserve tile. Leave INFLIGHT alone.
-      return;
-    }
+  const toClose=[],preserved=[];
+  for(let i=0;i<busy.length;i++){
+    const r=results[i];
+    if(r.status==='fulfilled'&&r.value!==false){toClose.push(busy[i])}else{preserved.push(busy[i])}
+  }
+  toClose.forEach(t=>{
     if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){
-      if(cancelled.has(t.id)||!t.busy){
-        delete INFLIGHT[t.session.session_id];
-        typeof clearInflightState==='function'&&clearInflightState(t.session.session_id);
-      }
+      delete INFLIGHT[t.session.session_id];
+      typeof clearInflightState==='function'&&clearInflightState(t.session.session_id);
     }
   });
-  // Phase 3: remove tiles not being preserved (only in-flight-stream tiles whose cancellation failed)
-  const preserved=T.tiles.filter(t=>t.busy&&t.activeStreamId&&!cancelled.has(t.id));
-  const removable=T.tiles.filter(t=>!preserved.includes(t));
-  removable.forEach(t=>{if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}});
-  T.tiles=[...preserved]; // keep failed-cancellation tiles
+  const nonBusy=T.tiles.filter(t=>!t.busy);
+  for(const t of nonBusy){if(t.el)t.el.remove()}
+  for(const t of toClose){if(t.el)t.el.remove()}
+  T.tiles=[...preserved];
   if(preserved.length===0){T.activeId=null;T._tc={};document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove())}
 }
 
+// ── Session open handler ──
 function initCapture(){
   window.registerHermesSessionOpenHandler(function(sid,data,opts){
     if(!T.visible)return {};
     if(opts&&opts.preload&&sid){
       if(!gs('auto_tile',true))return {};
-      // Duplicate session in a tile already? Focus it, no-op
       const existing=bySid(sid);
       if(existing){focusTile(existing.id);return {}}
-      // Find unreserved empty tile
-      const t=T.tiles.find(t=>!t.sid&&!t._pending);
-      if(!t)return {}; // grid full — skip, don't hijack active tile's destination
-      if(T.tiles.some(x=>x.sid===sid))return {}; // paranoia check
-      // Snapshot outgoing tile before core swaps S
-      if(T.activeId){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
+      let t=T.tiles.find(t=>!t.sid&&!t._pending);
+      if(!t){return {cancel:true}}
+      if(T.tiles.some(x=>x.sid===sid))return {};
       t._pending=true;
       T.pendingTile=t;
-      // Move msgInner to pending tile so Core renders into the correct node
-      if(t&&t.el){const cm=document.getElementById('msgInner');if(cm){cm.removeAttribute('id');const tgt=t.el.querySelector('.ext-tile-msg-inner');if(tgt)tgt.id='msgInner'}}
-      // Safety: clear pending if loaded never fires
       clearTimeout(T.pendingTimer);
       T.pendingTimer=setTimeout(()=>{T.pendingTile=null},5000);
     }
     if(opts&&opts.loaded&&sid){
       if(!gs('auto_tile',true))return {};
-      // Use pendingTile only if it hasn't been claimed by another session
       let t=T.pendingTile;
-      if(t&&t.sid&&t.sid!==sid)t=null; // pendingTile was already assigned to another session
+      if(t&&t.sid&&t.sid!==sid)t=null;
       if(!t)t=T.tiles.find(t=>!t.sid);
       T.pendingTile=null;clearTimeout(T.pendingTimer);
       if(t&&data){
         if(T.tiles.some(x=>x.sid===sid&&x!==t))return {};
-        // BREAKAGE #2 fix: data IS the session object (Core invokes loaded with S.session, not a wrapper)
-        // Messages live in S.messages, not data.messages
-        t.sid=sid;t.session=data;t.messages=[...(S.messages||[])];t.cv='';t.mv=null;
-        updateHeader(t);badge(sid,1);renderMsgs(t);
+        t.sid=sid;t.session=data;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;t.cv='';t.mv=null;
+        updateHeader(t);badge(sid,1);renderSnapshot(t);
         focusTile(t.id,{alreadyLoaded:true});
-        // BREAKAGE #3 fix: unwrap session from /api/session response in tile API
-        if(!t.messages.length&&sid){(async()=>{try{const f=await window.api(`/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`);if(f){const msgs=(f.session&&f.session.messages)||f.messages||[];t.messages=msgs;t.session=f.session||f;if(T.activeId===t.id&&typeof S!=='undefined'){S.messages=t.messages;S.session=t.session}renderMsgs(t);updateHeader(t)}}catch(_){}})()}
       }
     }
     return {};
@@ -382,51 +427,64 @@ function initCapture(){
 function createToolbar(){
   const tb=document.createElement('div');tb.id='ext-tiling-toolbar';
   tb.innerHTML=`<button class="ext-toolbar-btn" data-tooltip="Split 2 (horizontal)" aria-label="Split in 2" data-layout="2x1">${Svg.tb2}</button><button class="ext-toolbar-btn" data-tooltip="Split 4 (2x2 corners)" aria-label="Split in 4" data-layout="2x2">${Svg.tb4}</button><button class="ext-toolbar-btn" data-tooltip="Split 6 (3x2 grid)" aria-label="Split in 6" data-layout="3x2">${Svg.tb6}</button><div class="ext-toolbar-divider"></div><button class="ext-toolbar-btn" data-tooltip="Close all tiles" aria-label="Close tiling" data-layout="close">${Svg.tbX}</button>`;
-  // Set aria-pressed on layout buttons
-  tb.querySelectorAll('.ext-toolbar-btn[data-layout]').forEach(btn=>{
-    if(btn.dataset.layout!=='close')btn.setAttribute('aria-pressed','false');
+  tb.querySelectorAll('.ext-toolbar-btn').forEach(b=>{
+    b.onclick=e=>{
+      e.stopPropagation();
+      const layout=b.dataset.layout;
+      if(layout==='close'){hideGrid();return}
+      const[cols,rows]=layout.split('x').map(Number);
+      showGrid(cols,rows);
+    };
   });
-  const titlebar=document.querySelector('header.app-titlebar');if(titlebar)titlebar.appendChild(tb);else document.body.appendChild(tb);
-  tb.querySelectorAll('.ext-toolbar-btn').forEach(btn=>{btn.addEventListener('click',async e=>{
-    e.stopPropagation();const l=btn.dataset.layout;if(l==='close'){await hideGrid();return}
-    const[c,r]=l.split('x').map(Number);
-    if(T.visible&&T._cols===c&&T._rows===r)await hideGrid();else await showGrid(c,r)
-  })});
-  T.tb=tb;
+  return tb;
 }
 
 function tbActive(){
-  if(!T.tb)return;T.tb.classList.toggle('ext-tiling-toolbar--visible',true);
-  T.tb.querySelectorAll('.ext-toolbar-btn').forEach(btn=>{
-    if(btn.dataset.layout==='close')return;
-    const[c,r]=btn.dataset.layout.split('x').map(Number);
-    const active=T.visible&&T._cols===c&&T._rows===r;
-    btn.classList.toggle('ext-toolbar-btn--active',active);
-    btn.setAttribute('aria-pressed',String(active));
-  })
+  if(!T.tb)return;
+  T.tb.querySelectorAll('.ext-toolbar-btn[data-layout]').forEach(b=>{
+    const l=b.dataset.layout;
+    if(l==='close')return;
+    const[cols,rows]=l.split('x').map(Number);
+    b.classList.toggle('ext-toolbar-btn--active',T.visible&&T._cols===cols&&T._rows===rows);
+    b.setAttribute('aria-pressed',String(T.visible&&T._cols===cols&&T._rows===rows));
+  });
 }
 
-// ── Keyboard ──
-function initKeyboard(){
-  document.addEventListener('keydown',e=>{
-    if((e.ctrlKey||e.metaKey)&&e.altKey&&!e.repeat){const m={1:[1,1],2:[2,1],4:[2,2],6:[3,2]};if(m[e.key]){e.preventDefault();const[c,r]=m[e.key];if(T.visible)hideGrid();else showGrid(c,r)}}
-  })
+function tbInit(){
+  const topbar=document.querySelector('#topbar');
+  if(!topbar)return;
+  T.tb=createToolbar();
+  const insertBefore=topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
+  topbar.insertBefore(T.tb,insertBefore);
+  T.tb.classList.toggle('ext-tiling-toolbar--visible',T.visible);
+  tbActive();
 }
 
-// ── Compatibility exports ──
-window.openTileForSessionExt=openTile;window.focusTileExt=focusTile;window.closeTileExt=closeTile;window.maximizeTileExt=toggleMax;window.unmaximizeTileExt=toggleMax;
+// ── Public API for tests ──
+window.showGridExt=showGrid;
+window.hideGridExt=hideGrid;
+window.closeTileExt=closeTile;
+window.closeAllExt=closeAll;
+window.openTileForSessionExt=openTile;
+window.focusTileExt=focusTile;
+window.switchLayoutExt=switchLayout;
 
 // ── Init ──
 function init(){
-  if(!hasStableApi()){
-    console.debug('[chat-tiling] stable API unavailable, skipping init');
-    return;
-  }
+  if(!hasStableApi())return;
   injectCss();
-  T.grid=document.createElement('div');T.grid.id='ext-tile-grid';T.grid.className='ext-tile-grid';T.grid.style.display='none';
-  const mi=document.getElementById('msgInner');if(mi&&mi.parentNode)mi.parentNode.appendChild(T.grid);
-  createToolbar();tbActive();initCapture();initKeyboard();initBadgeObserver();
+  T.grid=document.createElement('div');
+  T.grid.id='ext-tile-grid';
+  const messages=document.querySelector('#messages');
+  if(!messages)return;
+  messages.appendChild(T.grid);
+  tbInit();
+  initCapture();
+  initBadgeObserver();
+  if(T.tb)T.tb.classList.add('ext-tiling-toolbar--visible');
 }
-// ── Boot ──
-document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
+else init();
+
 })();
