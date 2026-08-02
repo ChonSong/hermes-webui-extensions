@@ -24,7 +24,7 @@ function createFreshDom() {
   const { document } = window;
 
   window.S = { session: null, messages: [], busy: false, activeStreamId: null };
-  window.HermesExtensionSettings = { settingsForExtension: () => ({ get: () => true }) };
+  window.HermesExtensionSettings = { settingsForExtension: () => ({ get: (k) => k === 'auto_tile' ? true : undefined }) };
 
   const cancelCalls = [];
   const cancelResolvers = [];
@@ -45,8 +45,8 @@ function createFreshDom() {
   };
   window.registerHermesSessionOpenHandler = (fn) => { handlerRegistration = fn; };
   window.renderMessages = () => {};
-  window.loadSession = (sid, opts) => new Promise((res) => {
-    loadSessionResolvers.push({ sid, opts, res });
+  window.loadSession = (sid, opts) => new Promise((res, rej) => {
+    loadSessionResolvers.push({ sid, opts, res, rej });
     // Simulate Core updating S.session after load
     setTimeout(() => {
       if (window.S) {
@@ -141,21 +141,27 @@ async function main() {
     await settle();
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
     const tileA = tiles[0], tileB = tiles[1];
-    h.loadSessionResolvers = [];
-    h.window.focusTileExt(parseInt(tileA.dataset.tileId));
+    // Do NOT reassign the resolver array (that detaches it from the harness
+    // closure and the stale rejection never runs). Capture references instead.
+    const resolvers = h.loadSessionResolvers;
+    const startLen = resolvers.length;
+    h.window.focusTileExt(parseInt(tileA.dataset.tileId)); // schedules loadSession for A
     await settle();
-    h.window.focusTileExt(parseInt(tileB.dataset.tileId));
+    h.window.focusTileExt(parseInt(tileB.dataset.tileId)); // schedules loadSession for B
     await settle();
-    if (h.loadSessionResolvers.length > 0) {
-      setSession(h, 'sid-B', 'Session B', ['b-resolved']);
-      h.loadSessionResolvers[h.loadSessionResolvers.length - 1].res();
-    }
+    const rA = resolvers[startLen];
+    const rB = resolvers[startLen + 1];
+    assert(!!rA && !!rB, 'both loadSession calls captured resolvers');
+    // Resolve the LATEST (B) first — B owns S.
+    setSession(h, 'sid-B', 'Session B', ['b-resolved']);
+    rB.res();
     await settle();
-    if (h.loadSessionResolvers.length > 1) {
-      h.loadSessionResolvers[0].reject(new Error('stale'));
-    }
+    // Now reject the STALE A resolver: it must NOT clobber B's ownership.
+    rA.rej(new Error('stale'));
     await settle();
     assert(h.S.session.session_id === 'sid-B', 'B owns S after stale A rejects');
+    const tileBInner = tileB.querySelector('.ext-tile-msg-inner');
+    assert(!tileBInner.textContent.includes('a-msg') && !tileBInner.textContent.includes('a-resolved'), 'stale A rejection did not clobber B tile content');
   }
 
   // ═══════ S4: Full-grid navigation is rejected (cancel:true) ═══════
@@ -202,19 +208,29 @@ async function main() {
     assert(remaining.length === 2, 'tile A preserved on cancel refusal');
   }
 
-  // ═══════ S6: Cancelled preload releases reservation ═══════
-  section('S6: Cancelled preload releases reservation');
+  // ═══════ S6: Timed-out preload releases its slot ═══════
+  section('S6: Timed-out preload releases its slot');
   {
     const h = createFreshDom();
     setSession(h, 'sid-A', 'Session A', ['a']);
     h.window.showGridExt(2, 1);
     await settle();
-    h.handlerRegistration('sid-B', null, { preload: true });
-    setSession(h, 'sid-B', 'Session B', ['b']);
-    h.handlerRegistration('sid-B', h.S.session, { loaded: true });
-    await settle();
-    const r = h.handlerRegistration('sid-D', null, { preload: true });
-    assert(r && r.cancel === true, 'D rejected when grid full');
+    // Shorten the preload timeout for this test (60ms).
+    h.window.HermesExtensionSettings = {
+      settingsForExtension: () => ({
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+      })
+    };
+    // B preload reserves slot 2, then times out (no loaded event).
+    const rb = h.handlerRegistration('sid-B', null, { preload: true });
+    assert(!(rb && rb.cancel === true), 'B preload reserved a slot');
+    await sleep(250); // > 60ms → timeout fires, reservation released
+    // C must be able to reuse the released slot ({}), not get {cancel:true}.
+    const rc = h.handlerRegistration('sid-C', null, { preload: true });
+    assert(!(rc && rc.cancel === true), 'C reuses the slot released by timed-out B (not cancel)');
+    // Now the grid is full again (A + C): D is rejected.
+    const rd = h.handlerRegistration('sid-D', null, { preload: true });
+    assert(rd && rd.cancel === true, 'D rejected when grid full again');
   }
 
   // ═══════ S7: Hide/close restores focused session with its draft ═══════
@@ -239,8 +255,8 @@ async function main() {
     assert(h.document.getElementById('msg').value === 'draft-b', 'restored B\'s draft (not A\'s)');
   }
 
-  // ═══════ S8: Long transcript uses Core scroll owner ═══════
-  section('S8: Long transcript uses Core scroll owner');
+  // ═══════ S8: Active transcript has a scroll owner ═══════
+  section('S8: Active transcript has a scroll owner');
   {
     const h = createFreshDom();
     setSession(h, 'sid-A', 'Session A', []);
@@ -252,7 +268,16 @@ async function main() {
     await settle();
     const tile = h.document.querySelector('.ext-tile');
     const msgInner = tile.querySelector('.ext-tile-msg-inner');
-    assert(msgInner.style.overflowY !== 'auto', 'tile msg-inner does not own scrolling');
+    assert(msgInner.id === 'msgInner', 'active tile owns live msgInner');
+    // The injected stylesheet must give the ACTIVE transcript the scroll owner
+    // (a replacement scroller), since tiling disables Core's #messages scroller.
+    const cssText = h.document.getElementById('ext-tile-css').textContent;
+    const rule = /\.ext-tile-msg-inner\[id="msgInner"\]\s*\{[^}]*overflow-y\s*:\s*auto/i.test(cssText);
+    assert(rule, 'scroll-owner rule exists for the active transcript');
+    // A long transcript must be rendered inside that scrollable container
+    // (Core renders into #msgInner, which is the active tile's msg-inner).
+    h.window.renderTranscript(msgInner, longMsgs);
+    assert(msgInner.querySelectorAll('.msg').length === 100, '100 messages rendered inside active transcript');
   }
 
   // ═══════ S9: Non-focused tile is read-only snapshot ═══════
@@ -287,6 +312,7 @@ async function main() {
     composer.value = 'draft-a';
     h.handlerRegistration('sid-B', null, { preload: true });
     setSession(h, 'sid-B', 'Session B', ['b']);
+    composer.value = ''; // Core sets B's (empty) draft before loaded
     h.handlerRegistration('sid-B', h.S.session, { loaded: true });
     await settle();
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
@@ -332,6 +358,71 @@ async function main() {
     const h = createFreshDom();
     assert(!!h.document.getElementById('ext-tiling-toolbar'), 'toolbar exists');
     assert(!!h.document.getElementById('msgInner'), 'msgInner on Core container');
+  }
+
+  // ═══════ S13: Preload→loaded does not overwrite A's live surface/draft ═══════
+  section('S13: Preload→loaded does not overwrite A live surface/draft');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a-msg']);
+    h.window.showGridExt(2, 1);
+    await settle();
+    // A is focused and owns the live surface; give A a draft.
+    const composer = h.document.getElementById('msg');
+    composer.value = 'draft-a';
+    // Core order: preload(B) fires BEFORE S mutates to B.
+    h.handlerRegistration('sid-B', null, { preload: true });
+    await settle();
+    // Now Core mutates S to B, sets B's (empty) draft in the composer, and
+    // fires loaded(B).
+    setSession(h, 'sid-B', 'Session B', ['b-msg']);
+    composer.value = ''; // Core sets B's empty draft
+    h.handlerRegistration('sid-B', h.S.session, { loaded: true });
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    const tileA = tiles[0], tileB = tiles[1];
+    const bodyA = tileA.querySelector('.ext-tile-msg-inner').textContent;
+    const bodyB = tileB.querySelector('.ext-tile-msg-inner').textContent;
+    assert(tileA.querySelector('.ext-tile-title').textContent === 'Session A', 'tile A title stays Session A');
+    assert(bodyA.includes('a-msg') && !bodyA.includes('b-msg'), 'tile A body shows A, not B');
+    assert(bodyB.includes('b-msg'), 'tile B body shows B');
+    assert(composer.value === '', 'B focused with empty draft after load (A draft preserved in tile A)');
+    // Refocus A: it must restore A's draft, not B's.
+    h.window.focusTileExt(parseInt(tileA.dataset.tileId));
+    await settle();
+    assert(composer.value === 'draft-a', 'refocusing A restores A draft (not B draft)');
+    // Refocus B: it must restore B's (empty) draft, not A's.
+    h.window.focusTileExt(parseInt(tileB.dataset.tileId));
+    await settle();
+    assert(composer.value === '', 'refocusing B restores empty B draft (not A draft)');
+  }
+
+  // ═══════ S14: Exit with empty focused draft does not mix sessions ═══════
+  section('S14: Exit with empty focused draft does not mix sessions');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a-msg']);
+    h.window.showGridExt(2, 1);
+    await settle();
+    // A has a draft in the composer before B loads.
+    const composer = h.document.getElementById('msg');
+    composer.value = 'draft-a';
+    // Load B with an EMPTY draft (Core sets B's empty draft in the composer).
+    h.handlerRegistration('sid-B', null, { preload: true });
+    setSession(h, 'sid-B', 'Session B', ['b-msg']);
+    composer.value = ''; // Core sets B's empty draft
+    h.handlerRegistration('sid-B', h.S.session, { loaded: true });
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    const tileB = tiles[1];
+    h.window.focusTileExt(parseInt(tileB.dataset.tileId));
+    await settle();
+    // B's focused draft is empty — exiting tiling must restore B + empty draft,
+    // NOT fall back to the pre-grid A draft.
+    await h.window.hideGridExt();
+    await settle();
+    assert(h.S.session.session_id === 'sid-B', 'restored B session');
+    assert(h.document.getElementById('msg').value === '', 'empty B draft restored as empty (not A draft)');
   }
 
   console.log('\n' + '='.repeat(50));

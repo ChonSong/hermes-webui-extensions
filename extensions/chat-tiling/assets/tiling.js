@@ -45,6 +45,7 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-tile-btn:hover{background:var(--hover-bg);color:var(--text)}
 .ext-tile-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .ext-tile-msg-inner{flex:1;min-height:0;padding:0;display:flex;flex-direction:column}
+.ext-tile-msg-inner[id="msgInner"]{overflow-y:auto}
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent);color:var(--accent-text,#fff);font-size:10px;font-weight:700;line-height:1;margin-left:4px;vertical-align:middle}
 #ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative}
 #ext-tiling-toolbar.ext-tiling-toolbar--visible{display:flex}
@@ -131,7 +132,7 @@ function focusTile(id,opts){
   const tile=tid(id);if(!tile)return;
   const gen=++T._actGen;
   const outgoing=at();
-  if(outgoing&&outgoing.id!==id){
+  if(outgoing&&outgoing.id!==id&&!opts.alreadyLoaded){
     sc(outgoing);
   }
   const cur=document.getElementById('msgInner');if(cur)cur.removeAttribute('id');
@@ -349,8 +350,12 @@ async function hideGrid(){
   T.grid.style.display='none';T.grid.classList.remove('ext-tile-grid--active');
   document.body.classList.remove('ext-tiling-body');
   const restoreFrom=focusedTile&&focusedTile.session?focusedTile.session:T._saved;
-  const savedComposer=focusedTile&&focusedTile.cv?focusedTile.cv:T._savedComposer;
-  const savedModel=focusedTile&&focusedTile.mv?focusedTile.mv:T._savedModel;
+  // Presence/ownership, not truthiness: a focused tile with a session owns the
+  // composer slot even when its draft is legitimately empty (''), so an empty
+  // B draft must NOT fall back to the pre-grid A draft.
+  const ownsComposer=!!(focusedTile&&focusedTile.sid);
+  const savedComposer=ownsComposer?focusedTile.cv:T._savedComposer;
+  const savedModel=ownsComposer?focusedTile.mv:T._savedModel;
   const s=T._saved;T._saved=null;
   // If we have a focused tile with a session, restore from it (async)
   if(restoreFrom&&restoreFrom!==s&&restoreFrom.session_id&&typeof window.loadSession==='function'){
@@ -411,10 +416,39 @@ function initCapture(){
       let t=T.tiles.find(t=>!t.sid&&!t._pending);
       if(!t){return {cancel:true}}
       if(T.tiles.some(x=>x.sid===sid))return {};
+      // Transfer live ownership BEFORE Core mutates S: snapshot the outgoing
+      // tile (composer + transcript) and move the live #msgInner to the
+      // reserved tile, so Core's render for the incoming session lands in
+      // the new tile and never overwrites the outgoing tile's surface/draft.
+      const outgoing=at();
+      if(outgoing&&outgoing.id!==t.id){
+        sc(outgoing);
+        renderSnapshot(outgoing);
+        t._prevOwner=outgoing.id;
+      }
+      const cur=document.getElementById('msgInner');if(cur)cur.removeAttribute('id');
+      const ni=t.el&&t.el.querySelector('.ext-tile-msg-inner');if(ni)ni.id='msgInner';
+      T.activeId=t.id;
+      T.tiles.forEach(x=>{if(x.el)x.el.classList.toggle('ext-tile--focused',x.id===t.id)});
       t._pending=true;
       T.pendingTile=t;
       clearTimeout(T.pendingTimer);
-      T.pendingTimer=setTimeout(()=>{T.pendingTile=null},5000);
+      T.pendingTimer=setTimeout(()=>{
+        // Release the exact reservation (slot stays reusable) and, if this
+        // tile never loaded, hand live ownership back to its previous owner.
+        if(T.pendingTile===t)T.pendingTile=null;
+        t._pending=false;
+        if(t._prevOwner!=null){
+          const prev=tid(t._prevOwner);t._prevOwner=null;
+          if(prev&&T.activeId===t.id){
+            const c2=document.getElementById('msgInner');if(c2)c2.removeAttribute('id');
+            const ni2=prev.el&&prev.el.querySelector('.ext-tile-msg-inner');if(ni2)ni2.id='msgInner';
+            T.activeId=prev.id;
+            T.tiles.forEach(x=>{if(x.el)x.el.classList.toggle('ext-tile--focused',x.id===prev.id)});
+            rc(prev);
+          }
+        }
+      },gs('preload_timeout_ms',5000));
     }
     if(opts&&opts.loaded&&sid){
       if(!gs('auto_tile',true))return {};
@@ -424,7 +458,12 @@ function initCapture(){
       T.pendingTile=null;clearTimeout(T.pendingTimer);
       if(t&&data){
         if(T.tiles.some(x=>x.sid===sid&&x!==t))return {};
-        t.sid=sid;t.session=data;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;t.cv='';t.mv=null;
+        t._prevOwner=null;t._pending=false;
+        // Preserve the incoming session's draft: Core has already mutated S
+        // and set the composer, so capture it instead of blanking it.
+        const cm=document.getElementById('msg');if(cm)t.cv=cm.value;
+        const ms=document.getElementById('modelSelect');if(ms)t.mv=ms.value;
+        t.sid=sid;t.session=data;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;
         updateHeader(t);badge(sid,1);renderSnapshot(t);
         focusTile(t.id,{alreadyLoaded:true});
       }
