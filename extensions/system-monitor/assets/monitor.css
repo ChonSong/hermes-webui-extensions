@@ -15,8 +15,11 @@
   transition: background 0.15s;
 }
 
-#hwx-monitor-canvas:hover {
+#hwx-monitor-canvas:hover,
+#hwx-monitor-canvas:focus-visible {
   background: rgba(255, 255, 255, 0.04);
+  outline: 2px solid var(--accent, #6c8cff); /* Example focus style */
+  outline-offset: 2px;
 }
 
 /* Popup */
