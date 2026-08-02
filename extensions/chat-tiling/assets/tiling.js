@@ -431,21 +431,27 @@ function initCapture(){
       T.activeId=t.id;
       T.tiles.forEach(x=>{if(x.el)x.el.classList.toggle('ext-tile--focused',x.id===t.id)});
       t._pending=true;
+      t._pendingSid=sid;
+      t._gen=(t._gen||0)+1;
+      const _gen=t._gen;
       T.pendingTile=t;
       clearTimeout(T.pendingTimer);
       T.pendingTimer=setTimeout(()=>{
-        // Release the exact reservation (slot stays reusable) and, if this
-        // tile never loaded, hand live ownership back to its previous owner.
-        if(T.pendingTile===t)T.pendingTile=null;
-        t._pending=false;
-        if(t._prevOwner!=null){
-          const prev=tid(t._prevOwner);t._prevOwner=null;
-          if(prev&&T.activeId===t.id){
-            const c2=document.getElementById('msgInner');if(c2)c2.removeAttribute('id');
-            const ni2=prev.el&&prev.el.querySelector('.ext-tile-msg-inner');if(ni2)ni2.id='msgInner';
-            T.activeId=prev.id;
-            T.tiles.forEach(x=>{if(x.el)x.el.classList.toggle('ext-tile--focused',x.id===prev.id)});
-            rc(prev);
+        // Release only the reservation this timeout owns. If the tile has
+        // since been re-reserved for another session (or a newer generation),
+        // leave it alone — a stale B timer must not free C's slot.
+        if(T.pendingTile===t&&t._pendingSid===sid&&t._gen===_gen){
+          T.pendingTile=null;
+          t._pending=false;t._pendingSid=null;
+          if(t._prevOwner!=null){
+            const prev=tid(t._prevOwner);t._prevOwner=null;
+            if(prev&&T.activeId===t.id){
+              const c2=document.getElementById('msgInner');if(c2)c2.removeAttribute('id');
+              const ni2=prev.el&&prev.el.querySelector('.ext-tile-msg-inner');if(ni2)ni2.id='msgInner';
+              T.activeId=prev.id;
+              T.tiles.forEach(x=>{if(x.el)x.el.classList.toggle('ext-tile--focused',x.id===prev.id)});
+              rc(prev);
+            }
           }
         }
       },gs('preload_timeout_ms',5000));
@@ -453,12 +459,20 @@ function initCapture(){
     if(opts&&opts.loaded&&sid){
       if(!gs('auto_tile',true))return {};
       let t=T.pendingTile;
-      if(t&&t.sid&&t.sid!==sid)t=null;
-      if(!t)t=T.tiles.find(t=>!t.sid);
-      T.pendingTile=null;clearTimeout(T.pendingTimer);
+      // Accept the pending reservation only when it is still reserved for THIS
+      // sid. A late loaded(B) after the slot was reused by C must be ignored —
+      // C's reservation stays intact (generation token guards the timeout path).
+      if(!(t&&t._pendingSid===sid&&t._pending))t=null;
+      // Fallback: never steal a tile that is currently reserved for another
+      // session, so an unmatched loaded event cannot hijack a pending slot.
+      if(!t)t=T.tiles.find(t=>!t.sid&&!t._pending);
       if(t&&data){
         if(T.tiles.some(x=>x.sid===sid&&x!==t))return {};
-        t._prevOwner=null;t._pending=false;
+        // Consume the reservation ONLY if it is the one this loaded event
+        // matched; a fallback tile must not clear another session's pending
+        // reservation or its timer.
+        if(T.pendingTile===t){T.pendingTile=null;clearTimeout(T.pendingTimer)}
+        t._prevOwner=null;t._pending=false;t._pendingSid=null;
         // Preserve the incoming session's draft: Core has already mutated S
         // and set the composer, so capture it instead of blanking it.
         const cm=document.getElementById('msg');if(cm)t.cv=cm.value;

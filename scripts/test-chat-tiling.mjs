@@ -425,6 +425,87 @@ async function main() {
     assert(h.document.getElementById('msg').value === '', 'empty B draft restored as empty (not A draft)');
   }
 
+  // ═══════ S15: Late loaded(B) after slot reused by C is ignored ═══════
+  section('S15: Late loaded(B) after slot reuse by C is ignored');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 1);
+    await settle();
+    // Shorten the preload timeout for this test (60ms).
+    h.window.HermesExtensionSettings = {
+      settingsForExtension: () => ({
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+      })
+    };
+    // 1. B preload reserves slot 2, then times out (no loaded event).
+    const rb = h.handlerRegistration('sid-B', null, { preload: true });
+    assert(!(rb && rb.cancel === true), 'B preload reserved a slot');
+    await sleep(250); // > 60ms → B's timeout fires, slot released
+    // 2. C preload reuses the released slot — reservation now belongs to C.
+    const rc = h.handlerRegistration('sid-C', null, { preload: true });
+    assert(!(rc && rc.cancel === true), 'C reuses the slot released by timed-out B');
+    // 3. Late loaded(B) arrives while C is still pending. It must be ignored:
+    //    no tile may adopt sid-B, and C's reservation must stay intact.
+    setSession(h, 'sid-B', 'Session B', ['b-msg']);
+    h.handlerRegistration('sid-B', h.S.session, { loaded: true });
+    await settle();
+    const tilesAfterLateB = Array.from(h.document.querySelectorAll('.ext-tile'));
+    assert(!tilesAfterLateB.some(t => t.querySelector('.ext-tile-title').textContent === 'Session B'),
+      'late loaded(B) does not hijack the tile reserved for C');
+    const tile2 = tilesAfterLateB[1];
+    assert(tile2.querySelector('.ext-tile-title').textContent !== 'Session B', 'tile 2 still has no B sid/title');
+    // 4. loaded(C) must still land C in the reserved tile.
+    setSession(h, 'sid-C', 'Session C', ['c-msg']);
+    h.handlerRegistration('sid-C', h.S.session, { loaded: true });
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    assert(tiles.length === 2, 'two tiles remain after C loads');
+    const tileC = tiles[1];
+    assert(tileC.querySelector('.ext-tile-title').textContent === 'Session C', 'tile 2 title is Session C');
+    assert(tileC.querySelector('.ext-tile-msg-inner').textContent.includes('c-msg'), 'tile 2 body shows C messages');
+    assert(h.S.session.session_id === 'sid-C', 'C owns the active session');
+  }
+
+  // ═══════ S16: Late loaded(B) takes an unreserved fallback tile without
+  // clearing C's pending reservation (3-slot grid) ═══════
+  section('S16: Fallback loaded(B) preserves the pending reservation for C');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(3, 1);
+    await settle();
+    h.window.HermesExtensionSettings = {
+      settingsForExtension: () => ({
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+      })
+    };
+    // B preload reserves slot 2, times out, C re-reserves slot 2. Tile 3 is
+    // empty and unreserved.
+    h.handlerRegistration('sid-B', null, { preload: true });
+    await sleep(250);
+    const rc = h.handlerRegistration('sid-C', null, { preload: true });
+    assert(!(rc && rc.cancel === true), 'C reserved slot 2 after B timed out');
+    // Late loaded(B): must land in the unreserved tile 3 (fallback), NOT
+    // hijack C's reserved slot 2, and must NOT clear C's pending reservation.
+    setSession(h, 'sid-B', 'Session B', ['b-msg']);
+    h.handlerRegistration('sid-B', h.S.session, { loaded: true });
+    await settle();
+    const tilesAfterB = Array.from(h.document.querySelectorAll('.ext-tile'));
+    const t2 = tilesAfterB[1], t3 = tilesAfterB[2];
+    assert(t2.querySelector('.ext-tile-title').textContent !== 'Session B', 'tile 2 not hijacked by late B');
+    assert(t3.querySelector('.ext-tile-title').textContent === 'Session B', 'tile 3 takes B via fallback');
+    // loaded(C) must still land C on the reserved slot 2.
+    setSession(h, 'sid-C', 'Session C', ['c-msg']);
+    h.handlerRegistration('sid-C', h.S.session, { loaded: true });
+    await settle();
+    const tilesFinal = Array.from(h.document.querySelectorAll('.ext-tile'));
+    const f2 = tilesFinal[1], f3 = tilesFinal[2];
+    assert(f2.querySelector('.ext-tile-title').textContent === 'Session C', 'C lands on reserved slot 2');
+    assert(f2.querySelector('.ext-tile-msg-inner').textContent.includes('c-msg'), 'slot 2 body shows C');
+    assert(f3.querySelector('.ext-tile-title').textContent === 'Session B', 'B stays on tile 3');
+  }
+
   console.log('\n' + '='.repeat(50));
   console.log(`Results: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
