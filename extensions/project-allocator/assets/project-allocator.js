@@ -127,11 +127,19 @@
   function keywordSuggest() {
     const projData = {};
     state.projects.forEach(p => {
-      const name = (p.name || '').toLowerCase();
+      const orig = p.name || '';
+      const name = orig.toLowerCase();
       const words = new Set();
-      name.split(/[\s\-_.]+/).forEach(w => {
-        if (w.length >= 2) words.add(w);
-        const camelParts = w.replace(/([A-Z])/g, ' $1').toLowerCase().split(/\s+/);
+      // Split on the ORIGINAL casing first so camelCase/PascalCase boundary tokens
+      // survive (lowercasing before the boundaries split would kill them). Handles
+      // both MyProject -> [my, project] and CMSTool / HTTPShim -> [cms, tool]/[http, shim].
+      orig.split(/[\s\-_.]+/).forEach(w => {
+        if (w.length >= 2) words.add(w.toLowerCase());
+        const camelParts = w
+          .replace(/([a-z0-9])([A-Z])/g, '$1 $2')      // lower/digit -> Upper
+          .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')   // acronym run -> TitleCase
+          .toLowerCase()
+          .split(/\s+/);
         camelParts.forEach(cp => { if (cp.length >= 2) words.add(cp); });
       });
       if (name.length >= 2) words.add(name);

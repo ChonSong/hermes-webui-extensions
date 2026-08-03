@@ -23,7 +23,7 @@
     "native_host_autostart": "none"
   },
   "permissions": {
-    "webui_api": { "read": ["session", "sessions"], "write": ["session/move"] },
+    "webui_api": { "read": ["session", "sessions"], "write": ["session/move", "session/title/regenerate"] },
     "webui_navigation": false,
     "dom": { "owned": true, "mutates_core_views": false },
     "storage": { "owned": true },
