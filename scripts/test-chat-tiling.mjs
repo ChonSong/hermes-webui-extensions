@@ -13,8 +13,13 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function createFreshDom() {
   const dom = new JSDOM(
     `<!DOCTYPE html><html><head></head><body>
-      <div id="topbar"></div>
-      <div id="messages"><div id="msgInner"></div></div>
+      <header class="app-titlebar">
+        <button id="btnTitlebarNewChat">New chat</button>
+        <button id="btnReload">Reload</button>
+      </header>
+      <main class="main">
+        <div id="messages"><div id="msgInner"></div></div>
+      </main>
       <textarea id="msg">initial-composer-value</textarea>
       <select id="modelSelect"><option value="gpt4">GPT-4</option><option value="claude">Claude</option></select>
     </body></html>`,
@@ -67,9 +72,22 @@ function createFreshDom() {
   window.clearInflightState = () => {};
   window.INFLIGHT = {};
 
+  // Replace jsdom's MutationObserver with a controllable polyfill so
+  // panel-gating (S18) and any observer-driven paths fire deterministically.
+  // The polyfill records live instances (window.__mutationObservers) so tests
+  // can trigger attribute-change callbacks explicitly.
+  window.__mutationObservers = [];
+  window.MutationObserver = class MutationObserver {
+    constructor(cb) { this._cb = cb; this._target = null; this._opts = null; window.__mutationObservers.push(this); }
+    observe(target, opts) { this._target = target; this._opts = opts || {}; }
+    disconnect() { this._target = null; }
+    _trigger() { if (this._target) this._cb([], this); }
+  };
+
   globalThis.window = window;
   globalThis.document = document;
   globalThis.S = window.S;
+  if (window.MutationObserver) globalThis.MutationObserver = window.MutationObserver;
   globalThis.cancelSessionStream = window.cancelSessionStream;
   globalThis.INFLIGHT = window.INFLIGHT;
   globalThis.clearInflightState = window.clearInflightState;
@@ -353,11 +371,69 @@ async function main() {
   }
 
   // ═══════ S12: Toolbar exists (activation test) ═══════
-  section('S12: Toolbar exists (activation test)');
+  section('S12: Toolbar exists and anchors into current Core .app-titlebar');
   {
     const h = createFreshDom();
-    assert(!!h.document.getElementById('ext-tiling-toolbar'), 'toolbar exists');
+    const tb = h.document.getElementById('ext-tiling-toolbar');
+    assert(!!tb, 'toolbar exists');
+    const inTitlebar = !!tb && tb.closest('.app-titlebar') !== null;
+    assert(inTitlebar, 'toolbar is anchored inside .app-titlebar (current Core host hook)');
     assert(!!h.document.getElementById('msgInner'), 'msgInner on Core container');
+    const labels = Array.from(tb.querySelectorAll('.ext-toolbar-btn')).map(b => b.getAttribute('aria-label'));
+    assert(labels.includes('Split in 2'), 'toolbar renders aria-label "Split in 2"');
+    assert(labels.includes('Split in 4'), 'toolbar renders aria-label "Split in 4"');
+    assert(labels.includes('Split in 6'), 'toolbar renders aria-label "Split in 6"');
+    assert(labels.includes('Close tiling'), 'toolbar renders aria-label "Close tiling"');
+  }
+
+  // ═══════ S18: Toolbar is panel-gated (chat only) and fail-closed ═══════
+  section('S18: Toolbar is panel-gated (chat only) and fail-closed');
+  {
+    const h = createFreshDom();
+    const tb = h.document.getElementById('ext-tiling-toolbar');
+    assert(!!tb && tb.classList.contains('ext-tiling-toolbar--visible'), 'toolbar visible on chat panel (no showing-* class)');
+    const fireObservers = () => (h.window.__mutationObservers || []).forEach(o => o._trigger());
+    // Switch to a non-chat panel — Core adds showing-<name> to main.main.
+    const main = h.document.querySelector('main.main');
+    main.classList.add('showing-tasks');
+    fireObservers();
+    await settle();
+    assert(tb.classList.contains('ext-tiling-toolbar--panel-hidden'), 'toolbar hidden on tasks panel');
+    main.classList.remove('showing-tasks');
+    fireObservers();
+    await settle();
+    assert(!tb.classList.contains('ext-tiling-toolbar--panel-hidden'), 'toolbar visible again on chat panel');
+  }
+  {
+    // Fail-closed: no .app-titlebar / #topbar → no crash, extension still inits.
+    const dom = new JSDOM(
+      `<!DOCTYPE html><html><head></head><body>
+        <main class="main"><div id="messages"><div id="msgInner"></div></div></main>
+        <textarea id="msg"></textarea>
+        <select id="modelSelect"><option value="gpt4">GPT-4</option></select>
+      </body></html>`,
+      { url: 'http://localhost' }
+    );
+    const { window } = dom; const { document } = window;
+    window.S = { session: null, messages: [], busy: false, activeStreamId: null };
+    window.HermesExtensionSettings = { settingsForExtension: () => ({ get: () => true }) };
+    window.registerHermesSessionOpenHandler = () => {};
+    window.renderMessages = () => {};
+    window.loadSession = () => new Promise(r => r());
+    window.renderTranscript = () => {};
+    window.CSS = { escape: s => s };
+    window.autoResize = () => {};
+    window.syncTopbar = () => {};
+    window.syncModelChip = () => {};
+    window.showToast = () => {};
+    window.clearInflightState = () => {};
+    window.INFLIGHT = {};
+    globalThis.window = window; globalThis.document = document; globalThis.S = window.S;
+    const code = readFileSync(path.join(repoRoot, 'extensions/chat-tiling/assets/tiling.js'), 'utf8');
+    eval(code);
+    document.dispatchEvent(new window.Event('DOMContentLoaded'));
+    assert(!document.getElementById('ext-tiling-toolbar'), 'no toolbar when host hook is absent (fail closed)');
+    assert(!!document.getElementById('ext-tile-grid'), 'grid still inits without a toolbar hook');
   }
 
   // ═══════ S13: Preload→loaded does not overwrite A's live surface/draft ═══════

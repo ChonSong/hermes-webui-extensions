@@ -47,7 +47,7 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-tile-msg-inner{flex:1;min-height:0;padding:0;display:flex;flex-direction:column}
 .ext-tile-msg-inner[id="msgInner"]{overflow-y:auto}
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent);color:var(--accent-text,#fff);font-size:10px;font-weight:700;line-height:1;margin-left:4px;vertical-align:middle}
-#ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative}
+#ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative;-webkit-app-region:no-drag}
 #ext-tiling-toolbar.ext-tiling-toolbar--visible{display:flex}
 .ext-toolbar-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;background:transparent;border-radius:6px;color:var(--muted);cursor:pointer;position:relative;transition:background .15s,color .15s;-webkit-app-region:no-drag}
 .ext-toolbar-btn:hover{background:var(--hover-bg);color:var(--text)}
@@ -478,6 +478,45 @@ function initCapture(){
 }
 
 // ── Toolbar ──
+// Current Core (2026.07+) removed `#topbar`; the app-wide top bar is
+// `.app-titlebar` (contains #btnTitlebarNewChat / #btnReload). Older Core
+// builds still use `#topbar`. Anchor to whichever exists; fail closed (no
+// toolbar, no crash) when neither is present.
+function tbInit(){
+  const topbar=document.querySelector('.app-titlebar')||document.querySelector('#topbar');
+  if(!topbar)return;
+  T.tb=createToolbar();
+  const insertBefore=topbar.querySelector('#btnReload')||topbar.querySelector('#btnTitlebarNewChat')||topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
+  topbar.insertBefore(T.tb,insertBefore);
+  syncTbPanel();
+  tbActive();
+}
+
+// The app titlebar is visible on every panel (chat, tasks, kanban, …).
+// Chat Tiling only acts on the chat pane, so hide the toolbar whenever a
+// non-chat panel is showing (Core marks panels via `main.main.showing-*`).
+function chatPanelActive(){
+  const main=document.querySelector('main.main');
+  if(!main)return true;
+  return !Array.from(main.classList).some(c=>c.indexOf('showing-')===0);
+}
+function syncTbPanel(){
+  if(!T.tb)return;
+  const active=chatPanelActive();
+  T.tb.classList.toggle('ext-tiling-toolbar--visible',active);
+  T.tb.classList.toggle('ext-tiling-toolbar--panel-hidden',!active);
+}
+let _panelObs=null;
+function watchPanel(){
+  const main=document.querySelector('main.main');
+  if(!main)return;
+  syncTbPanel();
+  if(typeof MutationObserver==='undefined')return;
+  if(_panelObs)_panelObs.disconnect();
+  _panelObs=new MutationObserver(()=>syncTbPanel());
+  _panelObs.observe(main,{attributes:true,attributeFilter:['class']});
+}
+
 function createToolbar(){
   const tb=document.createElement('div');tb.id='ext-tiling-toolbar';
   tb.innerHTML=`<button class="ext-toolbar-btn" data-tooltip="Split 2 (horizontal)" aria-label="Split in 2" data-layout="2x1">${Svg.tb2}</button><button class="ext-toolbar-btn" data-tooltip="Split 4 (2x2 corners)" aria-label="Split in 4" data-layout="2x2">${Svg.tb4}</button><button class="ext-toolbar-btn" data-tooltip="Split 6 (3x2 grid)" aria-label="Split in 6" data-layout="3x2">${Svg.tb6}</button><div class="ext-toolbar-divider"></div><button class="ext-toolbar-btn" data-tooltip="Close all tiles" aria-label="Close tiling" data-layout="close">${Svg.tbX}</button>`;
@@ -504,16 +543,6 @@ function tbActive(){
   });
 }
 
-function tbInit(){
-  const topbar=document.querySelector('#topbar');
-  if(!topbar)return;
-  T.tb=createToolbar();
-  const insertBefore=topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
-  topbar.insertBefore(T.tb,insertBefore);
-  T.tb.classList.toggle('ext-tiling-toolbar--visible',T.visible);
-  tbActive();
-}
-
 // ── Public API for tests ──
 window.showGridExt=showGrid;
 window.hideGridExt=hideGrid;
@@ -525,6 +554,8 @@ window.switchLayoutExt=switchLayout;
 
 // ── Init ──
 function init(){
+  if(T._inited)return;
+  T._inited=true;
   if(!hasStableApi())return;
   injectCss();
   T.grid=document.createElement('div');
@@ -535,7 +566,8 @@ function init(){
   tbInit();
   initCapture();
   initBadgeObserver();
-  if(T.tb)T.tb.classList.add('ext-tiling-toolbar--visible');
+  watchPanel();
+  syncTbPanel();
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
