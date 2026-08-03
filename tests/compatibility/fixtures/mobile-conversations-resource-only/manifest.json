@@ -1,0 +1,10 @@
+{
+  "extensions": [
+    {
+      "id": "mobile-conversations",
+      "name": "Mobile Conversations resource-only negative fixture",
+      "scripts": ["assets/resource-only.js"],
+      "stylesheets": ["assets/resource-only.css"]
+    }
+  ]
+}

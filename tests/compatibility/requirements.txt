@@ -1,0 +1,3 @@
+# Test-only dependency: execute injected extension JavaScript in real Chromium.
+# Keep it out of the extension/runtime dependency surface.
+playwright>=1.48,<2

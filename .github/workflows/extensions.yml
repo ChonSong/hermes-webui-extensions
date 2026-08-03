@@ -9,8 +9,10 @@ on:
       - 'examples/loopback-sidecar/**'
       - 'README.md'
       - 'docs/extension-entry.md'
+      - 'docs/compatibility-smoke.md'
       - 'docs/SIDECAR_CONTRACT.md'
       - 'docs/rfcs/0001-extension-json-schema.md'
+      - 'tests/compatibility/**'
       - '.github/workflows/extensions.yml'
   push:
     branches:
@@ -22,8 +24,10 @@ on:
       - 'examples/loopback-sidecar/**'
       - 'README.md'
       - 'docs/extension-entry.md'
+      - 'docs/compatibility-smoke.md'
       - 'docs/SIDECAR_CONTRACT.md'
       - 'docs/rfcs/0001-extension-json-schema.md'
+      - 'tests/compatibility/**'
       - '.github/workflows/extensions.yml'
 
 concurrency:
@@ -115,3 +119,57 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  browser-compatibility:
+    name: Browser extension compatibility
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out extension repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check out Hermes WebUI Core
+        uses: actions/checkout@v5
+        with:
+          repository: nesquena/hermes-webui
+          # Pin the independently verified Core contract; update this SHA only
+          # after a maintainer reruns the smoke against the new Core head.
+          ref: 320789ae596a3963d726d90f6c7f3bc86f7f2d6d
+          path: .ci/hermes-webui-core
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Core browser-smoke dependency
+        run: python -m pip install "pyyaml>=6.0"
+
+      - name: Install browser compatibility dependency
+        run: python -m pip install -r tests/compatibility/requirements.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run real Core browser compatibility smoke
+        env:
+          HERMES_CORE_DIR: .ci/hermes-webui-core
+          COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
+        run: |
+          mkdir -p "$COMPATIBILITY_EVIDENCE_DIR"
+          python tests/compatibility/browser_smoke.py
+
+      - name: Upload browser compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: extension-compatibility-evidence
+          path: compatibility-evidence
+          if-no-files-found: warn
+          retention-days: 7
