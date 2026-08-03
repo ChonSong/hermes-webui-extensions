@@ -1,0 +1,67 @@
+{
+  "id": "docker-tunnel-manager",
+  "name": "Docker & Tunnel Manager",
+  "description": "Manage Docker containers, images, volumes, and Cloudflare tunnels from a 7-tab panel in Hermes WebUI. Pinned to hermes-webui/docker-tunnel-sidecar@v0.3.0.",
+  "version": "0.1.0",
+  "author": "ChonSong",
+  "assets": {
+    "scripts": [
+      "assets/docker-tunnel-manager.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17788",
+    "health_path": "/health"
+  },
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "sessions"
+      ],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": true
+  },
+  "settings_schema": [
+    {
+      "key": "sidecar_origin",
+      "type": "string",
+      "label": "Sidecar origin",
+      "default": "http://127.0.0.1:17788"
+    },
+    {
+      "key": "auto_refresh_ms",
+      "type": "integer",
+      "label": "Auto-refresh interval (ms)",
+      "default": 5000
+    }
+  ]
+}
