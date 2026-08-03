@@ -506,6 +506,47 @@ async function main() {
     assert(f3.querySelector('.ext-tile-title').textContent === 'Session B', 'B stays on tile 3');
   }
 
+  // ═══════ S17: Concurrent pending reservations — preload(B) → preload(C) →
+  // loaded(C) → loaded(B). B must not be orphaned with _pending=true and no
+  // timer (the singleton pendingTile/pendingTimer bug). ═══════
+  section('S17: Concurrent pending reservations do not orphan a slot');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(3, 1);
+    await settle();
+    h.window.HermesExtensionSettings = {
+      settingsForExtension: () => ({
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+      })
+    };
+    // 1. B preload reserves slot 2.
+    const rb = h.handlerRegistration('sid-B', null, { preload: true });
+    assert(!(rb && rb.cancel === true), 'B preload reserved a slot');
+    // 2. C preload reserves slot 3 (B's timer must NOT be cleared by C).
+    const rc = h.handlerRegistration('sid-C', null, { preload: true });
+    assert(!(rc && rc.cancel === true), 'C preload reserved a slot');
+    // 3. C loads first — consumes C's reservation, C lands on tile 3.
+    setSession(h, 'sid-C', 'Session C', ['c-msg']);
+    h.handlerRegistration('sid-C', h.S.session, { loaded: true });
+    await settle();
+    let tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    assert(tiles.length === 3, 'three tiles remain after C loads');
+    assert(tiles[2].querySelector('.ext-tile-title').textContent === 'Session C', 'C landed on tile 3');
+    // 4. B's loaded event arrives — B must land on tile 2 (its own reservation),
+    //    NOT be orphaned. The singleton bug would leave tile 2 _pending=true
+    //    forever because C's preload cleared B's timer.
+    setSession(h, 'sid-B', 'Session B', ['b-msg']);
+    h.handlerRegistration('sid-B', h.S.session, { loaded: true });
+    await settle();
+    tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    assert(tiles.length === 3, 'three tiles remain after B loads');
+    assert(tiles[1].querySelector('.ext-tile-title').textContent === 'Session B', 'B landed on tile 2 (not orphaned)');
+    assert(tiles[1].querySelector('.ext-tile-msg-inner').textContent.includes('b-msg'), 'tile 2 body shows B');
+    assert(tiles[2].querySelector('.ext-tile-title').textContent === 'Session C', 'C still on tile 3');
+    assert(tiles[2].querySelector('.ext-tile-msg-inner').textContent.includes('c-msg'), 'tile 3 body still shows C');
+  }
+
   console.log('\n' + '='.repeat(50));
   console.log(`Results: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

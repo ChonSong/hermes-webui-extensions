@@ -73,8 +73,6 @@ const T={
   _saved:null,
   _savedComposer:'',
   _savedModel:'',
-  pendingTile:null,
-  pendingTimer:null,
   _actGen:0
 };
 const tid=i=>T.tiles.find(t=>t.id===i);
@@ -434,15 +432,13 @@ function initCapture(){
       t._pendingSid=sid;
       t._gen=(t._gen||0)+1;
       const _gen=t._gen;
-      T.pendingTile=t;
-      clearTimeout(T.pendingTimer);
-      T.pendingTimer=setTimeout(()=>{
-        // Release only the reservation this timeout owns. If the tile has
+      clearTimeout(t._pendingTimer);
+      t._pendingTimer=setTimeout(()=>{
+        // Release only the reservation this timer owns. If the tile has
         // since been re-reserved for another session (or a newer generation),
         // leave it alone — a stale B timer must not free C's slot.
-        if(T.pendingTile===t&&t._pendingSid===sid&&t._gen===_gen){
-          T.pendingTile=null;
-          t._pending=false;t._pendingSid=null;
+        if(t._pending&&t._pendingSid===sid&&t._gen===_gen){
+          t._pending=false;t._pendingSid=null;t._pendingTimer=null;
           if(t._prevOwner!=null){
             const prev=tid(t._prevOwner);t._prevOwner=null;
             if(prev&&T.activeId===t.id){
@@ -458,21 +454,16 @@ function initCapture(){
     }
     if(opts&&opts.loaded&&sid){
       if(!gs('auto_tile',true))return {};
-      let t=T.pendingTile;
-      // Accept the pending reservation only when it is still reserved for THIS
-      // sid. A late loaded(B) after the slot was reused by C must be ignored —
-      // C's reservation stays intact (generation token guards the timeout path).
-      if(!(t&&t._pendingSid===sid&&t._pending))t=null;
+      // Find the reservation for THIS sid, not a singleton — multiple
+      // reservations may coexist (B pending on tile 2, C pending on tile 3).
+      let t=T.tiles.find(t=>t._pendingSid===sid&&t._pending);
       // Fallback: never steal a tile that is currently reserved for another
       // session, so an unmatched loaded event cannot hijack a pending slot.
       if(!t)t=T.tiles.find(t=>!t.sid&&!t._pending);
       if(t&&data){
         if(T.tiles.some(x=>x.sid===sid&&x!==t))return {};
-        // Consume the reservation ONLY if it is the one this loaded event
-        // matched; a fallback tile must not clear another session's pending
-        // reservation or its timer.
-        if(T.pendingTile===t){T.pendingTile=null;clearTimeout(T.pendingTimer)}
-        t._prevOwner=null;t._pending=false;t._pendingSid=null;
+        clearTimeout(t._pendingTimer);
+        t._prevOwner=null;t._pending=false;t._pendingSid=null;t._pendingTimer=null;
         // Preserve the incoming session's draft: Core has already mutated S
         // and set the composer, so capture it instead of blanking it.
         const cm=document.getElementById('msg');if(cm)t.cv=cm.value;
