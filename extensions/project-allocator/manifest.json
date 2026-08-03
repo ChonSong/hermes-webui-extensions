@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "project-allocator",
+      "name": "Project Allocator",
+      "description": "Suggests project assignments for unassigned sessions, with one-click assign and undo.",
+      "scripts": [
+        "assets/project-allocator.js"
+      ],
+      "stylesheets": [
+        "assets/project-allocator.css"
+      ]
+    }
+  ]
+}

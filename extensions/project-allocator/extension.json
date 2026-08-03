@@ -1,0 +1,49 @@
+{
+  "id": "project-allocator",
+  "name": "Project Allocator",
+  "description": "Suggests project assignments for unassigned sessions using keyword matching (LLM-classification naming kept for familiarity). One-click assign with undo support.",
+  "version": "0.1.0",
+  "author": "Hermes Agent",
+  "assets": {
+    "scripts": [
+      "assets/project-allocator.js"
+    ],
+    "stylesheets": [
+      "assets/project-allocator.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "screenshots": [],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "permissions": {
+    "webui_api": { "read": ["session", "sessions", "projects"], "write": ["session/move", "session/title/regenerate"] },
+    "webui_navigation": false,
+    "dom": { "owned": true, "mutates_core_views": false },
+    "storage": { "owned": true },
+    "network_external": false,
+    "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
+    "loopback_sidecar": false,
+    "native_host": false
+  },
+  "settings_schema": [
+    {
+      "key": "suggest_on_open",
+      "type": "boolean",
+      "label": "Auto-suggest when panel opens",
+      "default": true
+    },
+    {
+      "key": "max_undo_stack",
+      "type": "integer",
+      "label": "Undo stack size",
+      "default": 20
+    }
+  ]
+}
