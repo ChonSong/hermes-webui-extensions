@@ -215,7 +215,6 @@
       state.undoStack.push({ session_id: sessionId, project_id: prevProjectId, target_project_id: projectId, timestamp: Date.now() });
       saveUndoStack();
       if (s) s.project_id = projectId;
-      if (typeof _renderSessions === 'function') _renderSessions();
       showToast(`Assigned to ${getProjectName(projectId)}`);
       renderBody();
     } catch (err) {
@@ -231,7 +230,6 @@
       await api('POST', '/api/session/move', { session_id: last.session_id, project_id: last.project_id });
       const s = state.sessions.find(x => x.session_id === last.session_id);
       if (s) s.project_id = last.project_id;
-      if (typeof _renderSessions === 'function') _renderSessions();
       showToast('Undone: ' + (getProjectName(last.target_project_id) || 'unassigned'));
       renderBody();
     } catch (err) {
@@ -242,6 +240,34 @@
   }
 
   /* ── Fetch last user message for sessions ── */
+  async function _fetchLastUserMessage(s) {
+    try {
+      let data = null;
+      // Use window.api if available, fall back to raw fetch
+      try {
+        if (typeof window.api === 'function') {
+          const result = await window.api('/api/session?session_id=' + encodeURIComponent(s.session_id) + '&messages=1&resolve_model=0&msg_limit=10');
+          data = result?.session?.messages || result?.messages || [];
+        }
+      } catch(e) {}
+      
+      if (!data) {
+        // Fallback to raw fetch with credentials
+        const resp = await fetch('/api/session?session_id=' + encodeURIComponent(s.session_id) + '&messages=1&resolve_model=0&msg_limit=10', {
+          credentials: 'include',
+        });
+        if (!resp.ok) { s._lastUserMessage = ''; return; }
+        const result = await resp.json();
+        data = result?.session?.messages || result?.messages || [];
+      }
+      
+      const lastUser = [...data].reverse().find(m => m.role === 'user');
+      s._lastUserMessage = lastUser ? (lastUser.content || '').slice(0, 120) : '';
+    } catch (err) {
+      s._lastUserMessage = '';
+    }
+  }
+
   async function fetchLastUserMessages() {
     // Wait for globals to populate if needed
     if (typeof _allSessions === 'undefined' || !_allSessions.length) {
@@ -252,32 +278,11 @@
     const needsFetch = unassigned.filter(s => s._lastUserMessage == null);
     if (needsFetch.length === 0) return;
     
-    for (const s of needsFetch) {
-      try {
-        let data = null;
-        // Use window.api if available, fall back to raw fetch
-        try {
-          if (typeof window.api === 'function') {
-            const result = await window.api('/api/session?session_id=' + encodeURIComponent(s.session_id) + '&messages=1&resolve_model=0&msg_limit=10');
-            data = result?.session?.messages || result?.messages || [];
-          }
-        } catch(e) {}
-        
-        if (!data) {
-          // Fallback to raw fetch with credentials
-          const resp = await fetch('/api/session?session_id=' + encodeURIComponent(s.session_id) + '&messages=1&resolve_model=0&msg_limit=10', {
-            credentials: 'include',
-          });
-          if (!resp.ok) { s._lastUserMessage = ''; continue; }
-          const result = await resp.json();
-          data = result?.session?.messages || result?.messages || [];
-        }
-        
-        const lastUser = [...data].reverse().find(m => m.role === 'user');
-        s._lastUserMessage = lastUser ? (lastUser.content || '').slice(0, 120) : '';
-      } catch (err) {
-        s._lastUserMessage = '';
-      }
+    // Batch with bounded concurrency instead of one serial round-trip per
+    // session (N+1) — each fetch is independent, so parallelize up to a cap.
+    const CONCURRENCY = 6;
+    for (let i = 0; i < needsFetch.length; i += CONCURRENCY) {
+      await Promise.all(needsFetch.slice(i, i + CONCURRENCY).map(s => _fetchLastUserMessage(s)));
     }
   }
 
@@ -315,8 +320,6 @@
           failed++;
         }
       }
-      
-      if (typeof _renderSessions === 'function') _renderSessions();
       
       const parts = [];
       if (success > 0) parts.push(`${success} regenerated`);

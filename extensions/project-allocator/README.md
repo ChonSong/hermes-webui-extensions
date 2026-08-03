@@ -81,8 +81,10 @@ node scripts/generate-registry.mjs --out dist/registry.json
 
 Declared in `extension.json`:
 
-- `webui_api.read`: `session`, `sessions` — to list and inspect unassigned sessions.
-- `webui_api.write`: `session/move` — to assign sessions to a project.
+- `webui_api.read`: `session`, `sessions`, `projects` — to list and inspect
+  unassigned sessions and load project names for the picker/suggestions.
+- `webui_api.write`: `session/move`, `session/title/regenerate` — to assign
+  sessions to a project and batch-regenerate titles.
 - `dom`: owned, `mutates_core_views: false` (adds its own panel + chip).
 - `storage`: `owned: true` — entire extension namespace for settings + undo stack.
 - `network_external`: `false` — no outbound network requests (all calls are
