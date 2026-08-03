@@ -15,6 +15,7 @@
     sessions: [],
     projects: [],
     suggestions: {},
+    _suggestedSessions: {},
     undoStack: [],
     isLoading: false,
     _panelEl: null,
@@ -190,11 +191,15 @@
   /* ── LLM Suggestion (now client-side keyword matcher) ── */
   async function suggestProjects() {
     const unassigned = getUnassigned();
-    if (unassigned.length === 0) { state.suggestions = {}; return; }
+    if (unassigned.length === 0) { state.suggestions = {}; state._suggestedSessions = {}; return; }
     state.isLoading = true;
     renderBody();
     try {
       state.suggestions = keywordSuggest();
+      // Record which sessions have been considered so auto-suggest can detect
+      // genuinely new unassigned sessions instead of being one-shot.
+      state._suggestedSessions = {};
+      unassigned.forEach(s => { state._suggestedSessions[s.session_id] = true; });
     } catch (err) {
       console.warn('[ProjAlloc] Suggestion failed:', err);
       showToast('Suggestion failed: ' + err.message, 'error');
@@ -215,6 +220,10 @@
       state.undoStack.push({ session_id: sessionId, project_id: prevProjectId, target_project_id: projectId, timestamp: Date.now() });
       saveUndoStack();
       if (s) s.project_id = projectId;
+      // Drop stale suggestion state so counts stay accurate and an undo lets
+      // auto-suggest re-run for this session on the next panel open.
+      delete state.suggestions[sessionId];
+      delete state._suggestedSessions[sessionId];
       showToast(`Assigned to ${getProjectName(projectId)}`);
       renderBody();
     } catch (err) {
@@ -298,27 +307,34 @@
     let failed = 0;
     
     try {
-      for (const s of unassigned) {
-        try {
-          const resp = await api('POST', '/api/session/title/regenerate', {
-            session_id: s.session_id,
-          });
-          const newTitle = (resp && resp.title) || (resp && resp.session && resp.session.title) || '';
-          if (newTitle) {
-            s.title = newTitle;
-            // Also update the sidebar cache if present
-            if (typeof _allSessions !== 'undefined') {
-              const cached = _allSessions.find(x => x.session_id === s.session_id);
-              if (cached) cached.title = newTitle;
+      // Batch with bounded concurrency instead of one serial round-trip per
+      // session (N+1). Each regenerate is an LLM round-trip server-side, so
+      // keep the cap low to avoid hammering the model provider.
+      const CONCURRENCY = 3;
+      for (let i = 0; i < unassigned.length; i += CONCURRENCY) {
+        const batch = unassigned.slice(i, i + CONCURRENCY);
+        await Promise.all(batch.map(async (s) => {
+          try {
+            const resp = await api('POST', '/api/session/title/regenerate', {
+              session_id: s.session_id,
+            });
+            const newTitle = (resp && resp.title) || (resp && resp.session && resp.session.title) || '';
+            if (newTitle) {
+              s.title = newTitle;
+              // Also update the sidebar cache if present
+              if (typeof _allSessions !== 'undefined') {
+                const cached = _allSessions.find(x => x.session_id === s.session_id);
+                if (cached) cached.title = newTitle;
+              }
+              success++;
+            } else {
+              failed++;
             }
-            success++;
-          } else {
+          } catch (err) {
+            console.warn('[ProjAlloc] Regenerate failed for', s.session_id, err);
             failed++;
           }
-        } catch (err) {
-          console.warn('[ProjAlloc] Regenerate failed for', s.session_id, err);
-          failed++;
-        }
+        }));
       }
       
       const parts = [];
@@ -584,7 +600,9 @@
 
     if (visible) {
       refresh().then(() => {
-        if (getSetting('suggest_on_open', true) && getUnassigned().length > 0 && Object.keys(state.suggestions).length === 0) {
+        // Re-suggest when any unassigned session hasn't been through a suggest
+        // run yet (per-session staleness, not one-shot global-empty check).
+        if (getSetting('suggest_on_open', true) && getUnassigned().some(s => !state._suggestedSessions[s.session_id])) {
           suggestProjects();
         }
       });
