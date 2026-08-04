@@ -13,9 +13,7 @@
 (()=>{
 'use strict';
 
-const getS = () => {
-  try { return (typeof S !== 'undefined') ? S : {}; } catch(_) { return {}; }
-};
+const S = (typeof window!=='undefined'&&window.S)?window.S:{};
 
 // ── Feature detection ──
 function hasStableApi(){
@@ -49,7 +47,7 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-tile-msg-inner{flex:1;min-height:0;padding:0;display:flex;flex-direction:column}
 .ext-tile-msg-inner[id="msgInner"]{overflow-y:auto}
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent);color:var(--accent-text,#fff);font-size:10px;font-weight:700;line-height:1;margin-left:4px;vertical-align:middle}
-#ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative;-webkit-app-region:no-drag}
+#ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative}
 #ext-tiling-toolbar.ext-tiling-toolbar--visible{display:flex}
 .ext-toolbar-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;background:transparent;border-radius:6px;color:var(--muted);cursor:pointer;position:relative;transition:background .15s,color .15s;-webkit-app-region:no-drag}
 .ext-toolbar-btn:hover{background:var(--hover-bg);color:var(--text)}
@@ -121,7 +119,7 @@ function createTile(t){
 function updateHeader(t){
   const el=t.el||T.grid&&T.grid.querySelector(`.ext-tile[data-tile-id="${t.id}"]`);
   if(!el)return;
-  const title=t.session?(t.session.title||t.session.display_title||t.session._state_db_title||'New Chat'):'';
+  const title=t.session?(t.session.display_title||t.session._state_db_title||t.session.title||'New Chat'):'';
   el.querySelector('.ext-tile-title').textContent=title||'Empty tile';
   el.querySelector('.ext-tile-dot').hidden=!t.busy;
 }
@@ -145,25 +143,21 @@ function focusTile(id,opts){
   if(tile.session&&tile.session.session_id&&typeof window.loadSession==='function'){
     window.loadSession(tile.session.session_id,{skipExtHooks:true}).then(()=>{
       if(gen!==T._actGen)return;
-      tile.messages=[...(getS().messages||[])];
-      tile.busy=!!getS().busy;
-      tile.activeStreamId=getS().activeStreamId||null;
-      tile.session=getS().session;
-      renderSnapshot(tile);
+      tile.messages=[...(S.messages||[])];
+      tile.busy=!!S.busy;
+      tile.activeStreamId=S.activeStreamId||null;
+      tile.session=S.session;
       updateHeader(tile);
     }).catch(()=>{
       if(gen!==T._actGen)return;
-      renderSnapshot(tile);
       updateHeader(tile);
     });
   } else {
-    renderSnapshot(tile);
     updateHeader(tile);
   }
   startWatcher();
   // Immediate sync of busy state from S to focused tile
-  if(getS().messages&&getS().messages.length>0)tile.messages=[...getS().messages];tile.busy=!!getS().busy;tile.activeStreamId=getS().activeStreamId||null;
-  renderSnapshot(tile);
+  if(S.messages&&S.messages.length>0)tile.messages=[...S.messages];tile.busy=!!S.busy;tile.activeStreamId=S.activeStreamId||null;
   updateHeader(tile);
   if(typeof syncTopbar==='function')syncTopbar();
   if(typeof syncModelChip==='function')syncModelChip();
@@ -241,7 +235,7 @@ function refreshGrid(){
 // ── Busy watcher ──
 function startWatcher(){stopWatcher();T._w=setInterval(()=>{
   const t=at();if(!t||T.activeId===null){stopWatcher();return}
-  if(getS().messages&&getS().messages.length>0)t.messages=[...getS().messages];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;if(!getS().busy&&t.session)t.session=getS().session;
+  if(S.messages&&S.messages.length>0)t.messages=[...S.messages];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;if(!S.busy&&t.session)t.session=S.session;
   updateHeader(t);
 },500)}
 function stopWatcher(){T._w&&(clearInterval(T._w),T._w=null)}
@@ -285,7 +279,7 @@ async function showGrid(cols,rows){
   if(T.visible){await switchLayout(cols,rows);return}
   T._cols=cols;T._rows=rows;T.visible=true;
   if(!T._saved){
-    T._saved={...getS()};
+    T._saved={...S};
     const cm=document.getElementById('msg');T._savedComposer=cm?cm.value:'';
     const ms=document.getElementById('modelSelect');T._savedModel=ms?ms.value:'';
   }
@@ -297,10 +291,10 @@ async function showGrid(cols,rows){
     const t={id:T.nextId++,sid:null,session:null,messages:[],busy:false,activeStreamId:null,maximized:false,_closing:false,_pending:false,el:null,cv:'',mv:null};
     T.tiles.push(t);t.el=createTile(t);T.grid.appendChild(t.el);updateHeader(t)
   }
-  if(getS().session&&getS().session.session_id&&T.tiles.length>0){
+  if(S.session&&S.session.session_id&&T.tiles.length>0){
     const t=T.tiles[0];
-    t.sid=getS().session.session_id;t.session=getS().session;t.messages=[...(getS().messages||[])];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;
-    updateHeader(t);renderSnapshot(t);focusTile(t.id);
+    t.sid=S.session.session_id;t.session=S.session;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;
+    updateHeader(t);focusTile(t.id);
   } else if(T.tiles.length>0){
     focusTile(T.tiles[0].id);
   }
@@ -363,14 +357,14 @@ async function hideGrid(){
   const s=T._saved;T._saved=null;
   // If we have a focused tile with a session, restore from it (async)
   if(restoreFrom&&restoreFrom!==s&&restoreFrom.session_id&&typeof window.loadSession==='function'){
-    // Optimistic update: set getS().session immediately so tests/loadSession handlers see correct state
-    getS().session=restoreFrom;
-    getS().messages=[...(focusedTile.messages||[])];
+    // Optimistic update: set S.session immediately so tests/loadSession handlers see correct state
+    S.session=restoreFrom;
+    S.messages=[...(focusedTile.messages||[])];
     window.loadSession(restoreFrom.session_id,{skipExtHooks:true}).catch(()=>{
-      if(s)Object.assign(getS(),s);else{getS().session=null;getS().messages=[];getS().busy=false;getS().activeStreamId=null}
+      if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
     })
   } else {
-    if(s)Object.assign(getS(),s);else{getS().session=null;getS().messages=[];getS().busy=false;getS().activeStreamId=null}
+    if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
   }
   const cm=document.getElementById('msg');if(cm)cm.value=savedComposer||'';
   if(typeof autoResize==='function')autoResize();
@@ -418,7 +412,16 @@ function initCapture(){
       const existing=bySid(sid);
       if(existing){focusTile(existing.id);return {}}
       let t=T.tiles.find(t=>!t.sid&&!t._pending);
-      if(!t){return {cancel:true}}
+      if(!t){
+        // All tiles occupied — replace the focused tile atomically so the
+        // new session renders in the focused slot instead of being rejected.
+        t=at();
+        if(t&&t.sid===sid){return {}}
+        if(t&&t._pending){
+          clearTimeout(t._pendingTimer);
+          t._pending=false;t._pendingSid=null;t._pendingTimer=null;
+        }
+      }
       if(T.tiles.some(x=>x.sid===sid))return {};
       // Transfer live ownership BEFORE Core mutates S: snapshot the outgoing
       // tile (composer + transcript) and move the live #msgInner to the
@@ -474,7 +477,7 @@ function initCapture(){
         // and set the composer, so capture it instead of blanking it.
         const cm=document.getElementById('msg');if(cm)t.cv=cm.value;
         const ms=document.getElementById('modelSelect');if(ms)t.mv=ms.value;
-        t.sid=sid;t.session=data;t.messages=[...(getS().messages||[])];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;
+        t.sid=sid;t.session=data;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;
         updateHeader(t);badge(sid,1);renderSnapshot(t);
         focusTile(t.id,{alreadyLoaded:true});
       }
@@ -484,45 +487,6 @@ function initCapture(){
 }
 
 // ── Toolbar ──
-// Current Core (2026.07+) removed `#topbar`; the app-wide top bar is
-// `.app-titlebar` (contains #btnTitlebarNewChat / #btnReload). Older Core
-// builds still use `#topbar`. Anchor to whichever exists; fail closed (no
-// toolbar, no crash) when neither is present.
-function tbInit(){
-  const topbar=document.querySelector('.app-titlebar')||document.querySelector('#topbar');
-  if(!topbar)return;
-  T.tb=createToolbar();
-  const insertBefore=topbar.querySelector('#btnReload')||topbar.querySelector('#btnTitlebarNewChat')||topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
-  topbar.insertBefore(T.tb,insertBefore);
-  syncTbPanel();
-  tbActive();
-}
-
-// The app titlebar is visible on every panel (chat, tasks, kanban, …).
-// Chat Tiling only acts on the chat pane, so hide the toolbar whenever a
-// non-chat panel is showing (Core marks panels via `main.main.showing-*`).
-function chatPanelActive(){
-  const main=document.querySelector('main.main');
-  if(!main)return true;
-  return !Array.from(main.classList).some(c=>c.indexOf('showing-')===0);
-}
-function syncTbPanel(){
-  if(!T.tb)return;
-  const active=chatPanelActive();
-  T.tb.classList.toggle('ext-tiling-toolbar--visible',active);
-  T.tb.classList.toggle('ext-tiling-toolbar--panel-hidden',!active);
-}
-let _panelObs=null;
-function watchPanel(){
-  const main=document.querySelector('main.main');
-  if(!main)return;
-  syncTbPanel();
-  if(typeof MutationObserver==='undefined')return;
-  if(_panelObs)_panelObs.disconnect();
-  _panelObs=new MutationObserver(()=>syncTbPanel());
-  _panelObs.observe(main,{attributes:true,attributeFilter:['class']});
-}
-
 function createToolbar(){
   const tb=document.createElement('div');tb.id='ext-tiling-toolbar';
   tb.innerHTML=`<button class="ext-toolbar-btn" data-tooltip="Split 2 (horizontal)" aria-label="Split in 2" data-layout="2x1">${Svg.tb2}</button><button class="ext-toolbar-btn" data-tooltip="Split 4 (2x2 corners)" aria-label="Split in 4" data-layout="2x2">${Svg.tb4}</button><button class="ext-toolbar-btn" data-tooltip="Split 6 (3x2 grid)" aria-label="Split in 6" data-layout="3x2">${Svg.tb6}</button><div class="ext-toolbar-divider"></div><button class="ext-toolbar-btn" data-tooltip="Close all tiles" aria-label="Close tiling" data-layout="close">${Svg.tbX}</button>`;
@@ -549,6 +513,16 @@ function tbActive(){
   });
 }
 
+function tbInit(){
+  const topbar=document.querySelector('#topbar');
+  if(!topbar)return;
+  T.tb=createToolbar();
+  const insertBefore=topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
+  topbar.insertBefore(T.tb,insertBefore);
+  T.tb.classList.toggle('ext-tiling-toolbar--visible',T.visible);
+  tbActive();
+}
+
 // ── Public API for tests ──
 window.showGridExt=showGrid;
 window.hideGridExt=hideGrid;
@@ -560,8 +534,6 @@ window.switchLayoutExt=switchLayout;
 
 // ── Init ──
 function init(){
-  if(T._inited)return;
-  T._inited=true;
   if(!hasStableApi())return;
   injectCss();
   T.grid=document.createElement('div');
@@ -572,8 +544,7 @@ function init(){
   tbInit();
   initCapture();
   initBadgeObserver();
-  watchPanel();
-  syncTbPanel();
+  if(T.tb)T.tb.classList.add('ext-tiling-toolbar--visible');
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
