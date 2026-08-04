@@ -51,6 +51,7 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent);color:var(--accent-text,#fff);font-size:10px;font-weight:700;line-height:1;margin-left:4px;vertical-align:middle}
 #ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative}
 #ext-tiling-toolbar.ext-tiling-toolbar--visible{display:flex}
+#ext-tiling-toolbar.ext-tiling-toolbar--panel-hidden{display:none!important}
 .ext-toolbar-btn{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border:none;background:transparent;border-radius:6px;color:var(--muted);cursor:pointer;position:relative;transition:background .15s,color .15s;-webkit-app-region:no-drag}
 .ext-toolbar-btn:hover{background:var(--hover-bg);color:var(--text)}
 .ext-toolbar-btn.ext-toolbar-btn--active{background:var(--accent-bg);color:var(--accent)}
@@ -523,10 +524,37 @@ function tbInit(){
   const topbar=document.querySelector('.app-titlebar')||document.querySelector('#topbar');
   if(!topbar)return;
   T.tb=createToolbar();
-  const insertBefore=topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
+  const insertBefore=topbar.querySelector('#btnReload')||topbar.querySelector('#btnTitlebarNewChat')||topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
   topbar.insertBefore(T.tb,insertBefore);
-  T.tb.classList.toggle('ext-tiling-toolbar--visible',T.visible);
+  syncTbPanel();
   tbActive();
+}
+
+function chatPanelActive(){
+  const main=document.querySelector('main.main');
+  if(!main)return true;
+  return !Array.from(main.classList).some(c=>c.indexOf('showing-')===0);
+}
+function syncTbPanel(){
+  if(!T.tb)return;
+  const active=chatPanelActive();
+  if(active){
+    T.tb.classList.add('ext-tiling-toolbar--visible');
+    T.tb.classList.remove('ext-tiling-toolbar--panel-hidden');
+  } else {
+    T.tb.classList.remove('ext-tiling-toolbar--visible');
+    T.tb.classList.add('ext-tiling-toolbar--panel-hidden');
+  }
+}
+let _panelObs=null;
+function watchPanel(){
+  const main=document.querySelector('main.main');
+  if(!main)return;
+  syncTbPanel();
+  if(typeof MutationObserver==='undefined')return;
+  if(_panelObs)_panelObs.disconnect();
+  _panelObs=new MutationObserver(()=>syncTbPanel());
+  _panelObs.observe(main,{attributes:true,attributeFilter:['class']});
 }
 
 // ── Public API for tests ──
@@ -540,6 +568,8 @@ window.switchLayoutExt=switchLayout;
 
 // ── Init ──
 function init(){
+  if(T._inited)return;
+  T._inited=true;
   if(!hasStableApi())return;
   injectCss();
   T.grid=document.createElement('div');
@@ -550,7 +580,7 @@ function init(){
   tbInit();
   initCapture();
   initBadgeObserver();
-  if(T.tb)T.tb.classList.add('ext-tiling-toolbar--visible');
+  watchPanel();
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
