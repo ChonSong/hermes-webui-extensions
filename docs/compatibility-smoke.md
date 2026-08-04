@@ -9,8 +9,22 @@ that every changed extension has browser coverage.
 The allowlist currently contains the merged `mobile-conversations` extension.
 The smoke starts Core's `server.py` with an isolated `HERMES_HOME`,
 `HERMES_WEBUI_STATE_DIR`, workspace, and agent stub, then uses a free
-non-production localhost port. It strips API-key/password variables and never
-sends a chat or requires a provider/model.
+non-production localhost port. The subprocess environment is built from an
+empty mapping: only `PATH`, `LANG`/`LC_*`, the explicitly declared
+`HERMES_WEBUI_*`/Core startup settings, isolated `HOME`/`XDG_*` paths under the
+case state directory, `NO_PROXY` for loopback, and `PYTHONNOUSERSITE=1` are
+present. It does not inherit
+`PYTHONPATH`, `PYTHONHOME`, provider or gateway settings, proxy variables, or
+unspecified `HERMES_*` values. The smoke never sends a chat or requires a
+provider/model.
+
+The browser context blocks service workers. Before navigation, the harness
+allows HTTP(S) only to `localhost`, `127.0.0.1`, and `[::1]`; all other HTTP(S)
+requests are aborted and recorded. The fixed CDN URLs from the pinned Core
+index are recorded as a known baseline but are also aborted. Any other
+off-origin HTTP(S) attempt, or any non-loopback WebSocket (closed through
+Playwright's WebSocket routing), fails the compatibility case. This is a
+no-egress smoke, not an assertion that the CDN is reachable.
 
 At a 390x844 mobile viewport, the positive case requires all of the following:
 
@@ -28,7 +42,9 @@ entry. The same entry assertion must time out; the smoke records that expected
 failure as a pass. This prevents a CI green from meaning only that an asset URL
 returned HTTP 200. The fixture lives under
 `tests/compatibility/fixtures/mobile-conversations-resource-only/` and is not a
-shipped extension.
+shipped extension. The separate test-only `off-origin-egress.js` fixture
+attempts a non-baseline fetch and verifies that the browser guard records it and
+fails the compatibility assertion; it is also not a shipped extension.
 
 Assertions use the extension's own id/data/ARIA surfaces. The Core host
 selector is only a readiness precondition, not the extension pass/fail oracle;
@@ -41,7 +57,7 @@ test-only browser dependency in an isolated environment, then install Chromium:
 
 ```bash
 python3.12 -m pip install "pyyaml>=6.0"
-python3.12 -m pip install -r tests/compatibility/requirements.txt
+python3.12 -m pip install --require-hashes -r tests/compatibility/requirements.txt
 python3.12 -m playwright install --with-deps chromium
 ```
 
@@ -54,20 +70,26 @@ python3.12 tests/compatibility/browser_smoke.py
 ```
 
 The command exits `0` only when the normal reference case passes and the
-resource-only case detects the missing entry. Evidence includes
-`compatibility-results.json`, one server log per case, and screenshots when the
-browser reaches the relevant page.
+resource-only case detects the missing entry. A compatibility assertion exits
+`1` with status `failed`. Missing setup (for example, a Core checkout or
+Playwright browser that is unavailable) and unexpected harness/driver
+exceptions exit `2`; the latter is recorded as status `harness_error` with a
+traceback rather than being reported as an extension regression. Evidence
+includes `compatibility-results.json`, one server log and one network-block
+record per case, and screenshots when the browser reaches the relevant page.
 
 ## CI boundary
 
 The `browser-compatibility` job checks out `nesquena/hermes-webui` independently
 at the pinned, maintainer-verified Core SHA in
 `.github/workflows/extensions.yml` (`320789ae596a3963d726d90f6c7f3bc86f7f2d6d`),
-installs only Core's browser-smoke dependency (`pyyaml>=6.0`) plus the one
-test-only Playwright dependency, and uploads `compatibility-evidence/**` with
-`if: always()`. It runs on pull requests whenever extension code, the smoke,
-fixture, docs, or workflow changes. The existing registry/safety job remains a
-separate gate.
+installs only Core's browser-smoke dependency (`pyyaml>=6.0`) plus the
+hash-locked test-only Playwright dependency with `pip --require-hashes`, and
+uploads `compatibility-evidence/**` with `if: always()`. The new job's
+checkout, setup-python, and upload-artifact actions are pinned to full commit
+SHAs (with the corresponding `v5` tag noted beside each pin). It runs on pull
+requests whenever extension code, the smoke, fixture, docs, or workflow
+changes. The existing registry/safety job remains a separate gate.
 
 To update the pin, first rerun this smoke against the candidate Core checkout,
 review the logs/screenshots/results, then change the SHA and repeat the CI

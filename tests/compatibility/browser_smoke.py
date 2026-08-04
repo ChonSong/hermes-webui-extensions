@@ -17,7 +17,7 @@ does not claim coverage for all changed extensions.
 Exit codes:
   0 - reference entry passed and the negative case was correctly detected.
   1 - compatibility assertion failed.
-  2 - environment/setup failure (missing Core checkout or Playwright).
+  2 - setup failure or unexpected harness/driver exception (with traceback).
 """
 
 from __future__ import annotations
@@ -31,11 +31,13 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -45,6 +47,30 @@ HEALTH_TIMEOUT_SECONDS = 30
 SERVER_START_ATTEMPTS = 5
 ENTRY_TIMEOUT_MS = 15_000
 NEGATIVE_ENTRY_TIMEOUT_MS = 4_000
+
+# The browser is allowed to talk to the Core process only through loopback.
+# Keep this explicit rather than treating an entire private-network range or a
+# CDN domain as trusted.  ``urlsplit`` normalizes bracketed IPv6 hosts to
+# ``::1`` for us.
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+# The pinned Core index intentionally references this fixed set of CDN resources.
+# They are still aborted by the browser route; listing their complete URLs only
+# keeps this known Core baseline distinct from an extension's unexpected
+# off-origin attempt.  A new Core off-origin URL must be reviewed and added
+# explicitly instead of broadening this to a host/domain allowlist.
+EXPECTED_CORE_OFF_ORIGIN_URLS = frozenset(
+    {
+        "https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css",
+        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css",
+        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css",
+        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js",
+        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js",
+        "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js",
+        "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js",
+        "https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -161,6 +187,170 @@ def _terminate(proc: subprocess.Popen[str] | None, log_file: Any | None) -> None
         log_file.close()
 
 
+def _safe_url(url: str) -> str:
+    """Remove query/fragment data before a URL enters evidence or errors."""
+
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "<malformed-url>"
+    if parsed.hostname:
+        # A browser URL can technically contain userinfo.  Do not copy that
+        # value into CI logs or evidence while retaining enough coordinates to
+        # identify the blocked origin.
+        hostname = parsed.hostname
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        try:
+            netloc = f"{hostname}:{parsed.port}" if parsed.port else hostname
+        except ValueError:
+            netloc = hostname
+        parsed = parsed._replace(netloc=netloc)
+    return parsed._replace(query="", fragment="").geturl()
+
+
+def _is_loopback_http_url(url: str) -> bool:
+    """Return whether an HTTP(S) URL targets one of the explicit loopback hosts."""
+
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+    except ValueError:
+        return False
+    return parsed.scheme.lower() in {"http", "https"} and (host or "").lower() in LOOPBACK_HOSTS
+
+
+def _is_loopback_websocket_url(url: str) -> bool:
+    """Return whether a WebSocket URL targets an explicit loopback host."""
+
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in {"ws", "wss"}:
+        return False
+    return (host or "").lower() in LOOPBACK_HOSTS
+
+
+def _normalized_url(url: str) -> str:
+    try:
+        return urlsplit(url)._replace(fragment="").geturl()
+    except ValueError:
+        return url
+
+
+def _install_network_guards(context: Any) -> dict[str, list[dict[str, str]]]:
+    """Install deny-by-default HTTP and WebSocket routing before navigation.
+
+    Loopback HTTP(S) is continued so Core can serve the app.  All other
+    HTTP(S) requests are aborted and recorded.  The pinned Core's fixed CDN
+    URLs are recorded separately from unexpected off-origin attempts; neither
+    category is allowed to reach the network.
+    """
+
+    events: dict[str, list[dict[str, str]]] = {
+        "blocked_http": [],
+        "unexpected_http": [],
+        "blocked_websockets": [],
+        "unexpected_websockets": [],
+    }
+
+    def on_route(route: Any) -> None:
+        request = getattr(route, "request", None)
+        url = str(getattr(request, "url", getattr(route, "url", "")))
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.scheme.lower() not in {"http", "https"}:
+            route.continue_()
+            return
+        if _is_loopback_http_url(url):
+            route.continue_()
+            return
+
+        safe_url = _safe_url(url)
+        classification = (
+            "core-baseline"
+            if _normalized_url(url) in EXPECTED_CORE_OFF_ORIGIN_URLS
+            else "unexpected"
+        )
+        event = {"url": safe_url, "classification": classification}
+        events["blocked_http"].append(event)
+        if classification == "unexpected":
+            events["unexpected_http"].append(event)
+        route.abort()
+
+    context.route("**/*", on_route)
+
+    route_web_socket = getattr(context, "route_web_socket", None)
+    if route_web_socket is None:
+        raise SetupFailure(
+            "installed Playwright must provide BrowserContext.route_web_socket"
+        )
+
+    def on_websocket(websocket: Any) -> None:
+        url = str(getattr(websocket, "url", ""))
+        if _is_loopback_websocket_url(url):
+            websocket.connect_to_server()
+            return
+        event = {"url": _safe_url(url), "classification": "unexpected"}
+        events["blocked_websockets"].append(event)
+        events["unexpected_websockets"].append(event)
+        websocket.close(code=1008, reason="off-origin WebSocket blocked")
+
+    route_web_socket("**/*", on_websocket)
+    return events
+
+
+def _assert_browser_health(
+    *,
+    case_name: str,
+    console_errors: list[str],
+    page_errors: list[str],
+    extension_fragments: tuple[str, ...],
+    network_events: dict[str, list[dict[str, str]]],
+) -> None:
+    """Assert runtime and browser-egress invariants at a particular checkpoint."""
+
+    baseline_abort_budget = sum(
+        1
+        for event in network_events.get("blocked_http", [])
+        if event.get("classification") == "core-baseline"
+    )
+    meaningful_console_errors: list[str] = []
+    for text in console_errors:
+        # Chromium emits a URL-less ERR_FAILED console line when Playwright
+        # aborts a stylesheet/script request.  Spend one budget item only for
+        # the known Core baseline request; an extension resource still fails
+        # through its response/requestfailed assertion, and unexpected
+        # off-origin egress fails through the network invariant below.
+        if (
+            text.lower() == "failed to load resource: net::err_failed"
+            and baseline_abort_budget
+        ):
+            baseline_abort_budget -= 1
+            continue
+        if not _is_benign_core_console(text, extension_fragments):
+            meaningful_console_errors.append(text)
+    meaningful_page_errors = [
+        text for text in page_errors if not _is_benign_core_page_error(text)
+    ]
+    if meaningful_console_errors or meaningful_page_errors:
+        raise CompatibilityFailure(
+            f"{case_name}: browser runtime errors: "
+            f"console={meaningful_console_errors!r}, page={meaningful_page_errors!r}"
+        )
+    unexpected_http = network_events.get("unexpected_http", [])
+    unexpected_websockets = network_events.get("unexpected_websockets", [])
+    if unexpected_http or unexpected_websockets:
+        raise CompatibilityFailure(
+            f"{case_name}: unexpected off-origin browser egress was blocked: "
+            f"http={unexpected_http!r}, websockets={unexpected_websockets!r}"
+        )
+
+
 def _sanitized_environment(
     *,
     state_root: Path,
@@ -169,24 +359,41 @@ def _sanitized_environment(
     manifest_relative: str,
     port: int,
 ) -> dict[str, str]:
-    env = os.environ.copy()
-    for key in list(env):
-        if key.endswith("_API_KEY") or key in {
-            "API_SERVER_KEY",
-            "HERMES_API_KEY",
-            "HERMES_WEBUI_PASSWORD",
-            "HERMES_WEBUI_AUTH",
-        }:
-            env.pop(key, None)
-    for key in (
-        "HERMES_WEBUI_EXTENSION_SCRIPT_URLS",
-        "HERMES_WEBUI_EXTENSION_STYLESHEET_URLS",
-        "HERMES_WEBUI_EXTENSION_MANIFEST",
-    ):
-        env.pop(key, None)
+    # Build the child environment from nothing.  A denylist cannot anticipate
+    # every provider token, proxy, import path, or future HERMES_* setting a
+    # developer may have in their shell.  Locale and PATH are the only parent
+    # values needed to start a predictable Python/Core process; all other
+    # values below are owned by this harness.
+    env: dict[str, str] = {}
+    for key, value in os.environ.items():
+        if key == "PATH" or key == "LANG" or key.startswith("LC_"):
+            env[key] = value
+
     hermes_home = state_root / "hermes-home"
+    isolated_home = state_root / "home"
+    xdg_config_home = state_root / "xdg-config"
+    xdg_cache_home = state_root / "xdg-cache"
+    xdg_data_home = state_root / "xdg-data"
+    xdg_state_home = state_root / "xdg-state"
+    for path in (
+        hermes_home,
+        isolated_home,
+        xdg_config_home,
+        xdg_cache_home,
+        xdg_data_home,
+        xdg_state_home,
+        state_root / "webui-state",
+        state_root / "workspace",
+    ):
+        path.mkdir(parents=True, exist_ok=True)
     env.update(
         {
+            "HOME": str(isolated_home),
+            "XDG_CONFIG_HOME": str(xdg_config_home),
+            "XDG_CACHE_HOME": str(xdg_cache_home),
+            "XDG_DATA_HOME": str(xdg_data_home),
+            "XDG_STATE_HOME": str(xdg_state_home),
+            "PYTHONNOUSERSITE": "1",
             "HERMES_WEBUI_HOST": "127.0.0.1",
             "HERMES_WEBUI_PORT": str(port),
             "HERMES_WEBUI_STATE_DIR": str(state_root / "webui-state"),
@@ -201,8 +408,9 @@ def _sanitized_environment(
             # Core's own smoke uses this switch to keep server-side probes
             # local.  The browser never receives credentials or model config.
             "HERMES_WEBUI_TEST_NETWORK_BLOCK": "1",
-            "NO_PROXY": "127.0.0.1,localhost",
-            "no_proxy": "127.0.0.1,localhost",
+            # This is harness-owned (not inherited) and keeps Core's own
+            # localhost health probe independent of any machine proxy setup.
+            "NO_PROXY": "127.0.0.1,localhost,[::1]",
         }
     )
     return env
@@ -283,6 +491,16 @@ def _is_benign_core_console(text: str, extension_fragments: tuple[str, ...]) -> 
     )
 
 
+def _is_benign_core_page_error(text: str) -> bool:
+    """Ignore the one deterministic Core error caused by blocked workers."""
+
+    lowered = text.lower()
+    return (
+        "service worker is disabled because the context is sandboxed"
+        in lowered
+    )
+
+
 def _record_screenshot(page: Any, path: Path) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -315,13 +533,26 @@ def _run_browser_case(
     console_errors: list[str] = []
     page_errors: list[str] = []
     screenshot_path = evidence_dir / f"{case_name}.png"
+    network_events: dict[str, list[dict[str, str]]] = {
+        "blocked_http": [],
+        "unexpected_http": [],
+        "blocked_websockets": [],
+        "unexpected_websockets": [],
+    }
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
-        context = browser.new_context(viewport=MOBILE_VIEWPORT, is_mobile=True)
+        context = browser.new_context(
+            viewport=MOBILE_VIEWPORT,
+            is_mobile=True,
+            service_workers="block",
+        )
+        # Install guards before creating/navigating the page so boot-time CDN
+        # requests and extension egress are captured from the first byte.
+        network_events = _install_network_guards(context)
         page = context.new_page()
 
         def on_response(response: Any) -> None:
@@ -372,16 +603,13 @@ def _run_browser_case(
                     f"{request_failures or failed_resources}"
                 )
 
-            meaningful_console_errors = [
-                text
-                for text in console_errors
-                if not _is_benign_core_console(text, resource_fragments)
-            ]
-            if meaningful_console_errors or page_errors:
-                raise CompatibilityFailure(
-                    f"{case_name}: browser runtime errors: "
-                    f"console={meaningful_console_errors!r}, page={page_errors!r}"
-                )
+            _assert_browser_health(
+                case_name=case_name,
+                console_errors=console_errors,
+                page_errors=page_errors,
+                extension_fragments=resource_fragments,
+                network_events=network_events,
+            )
 
             # The extension README names `.messages-shell` as its host.  Wait
             # for that real Core host before evaluating either positive or
@@ -406,12 +634,24 @@ def _run_browser_case(
                         state="visible", timeout=NEGATIVE_ENTRY_TIMEOUT_MS
                     )
                 except PlaywrightTimeoutError:
+                    # Keep the late-error check adjacent to this successful
+                    # negative return; a pageerror after the early boot check
+                    # must not make the smoke false-green.
                     _record_screenshot(page, screenshot_path)
+                    _assert_browser_health(
+                        case_name=case_name,
+                        console_errors=console_errors,
+                        page_errors=page_errors,
+                        extension_fragments=resource_fragments,
+                        network_events=network_events,
+                    )
                     return {
                         "status": "expected_failure_detected",
                         "resource_urls": [item["url"] for item in responses],
                         "entry_selector": expected_entry.entry_selector,
                         "screenshot": str(screenshot_path),
+                        "blocked_http": list(network_events["blocked_http"]),
+                        "blocked_websockets": list(network_events["blocked_websockets"]),
                     }
                 raise CompatibilityFailure(
                     f"{case_name}: resource-only fixture unexpectedly rendered "
@@ -462,7 +702,16 @@ def _run_browser_case(
                     f"{case_name}: shortcut labels changed: {sorted(labels)!r}"
                 )
             page.keyboard.press("Escape")
+            # Keep this check immediately before the positive return so errors
+            # raised during right-click, menu inspection, or Escape are caught.
             _record_screenshot(page, screenshot_path)
+            _assert_browser_health(
+                case_name=case_name,
+                console_errors=console_errors,
+                page_errors=page_errors,
+                extension_fragments=resource_fragments,
+                network_events=network_events,
+            )
             return {
                 "status": "passed",
                 "resource_urls": [item["url"] for item in responses],
@@ -470,11 +719,14 @@ def _run_browser_case(
                 "entry_aria_label": expected_entry.entry_aria_label,
                 "runtime": runtime,
                 "screenshot": str(screenshot_path),
+                "blocked_http": list(network_events["blocked_http"]),
+                "blocked_websockets": list(network_events["blocked_websockets"]),
             }
         except Exception:
             _record_screenshot(page, screenshot_path)
             raise
         finally:
+            _write_json(evidence_dir / f"{case_name}-network.json", network_events)
             context.close()
             browser.close()
 
@@ -606,13 +858,25 @@ def main() -> int:
         print(f"SETUP FAILURE: {exc}", file=sys.stderr)
         print(f"evidence={evidence_dir}", file=sys.stderr)
         return 2
-    except (CompatibilityFailure, Exception) as exc:
+    except CompatibilityFailure as exc:
         results["status"] = "failed"
         results["error"] = str(exc)
         _write_json(results_path, results)
         print(f"EXTENSION COMPATIBILITY FAILED: {exc}", file=sys.stderr)
         print(f"evidence={evidence_dir}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        # Harness bugs, Playwright driver failures, and unexpected setup
+        # exceptions are not extension incompatibilities.  Preserve the full
+        # traceback in evidence and use a distinct exit code so CI can route
+        # the failure to the harness owner.
+        results["status"] = "harness_error"
+        results["error"] = f"{type(exc).__name__}: {exc}"
+        results["traceback"] = traceback.format_exc()
+        _write_json(results_path, results)
+        print(f"HARNESS ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"evidence={evidence_dir}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
