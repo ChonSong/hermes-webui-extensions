@@ -20,6 +20,8 @@
   let gActiveTab = 'containers';
   let gPanel = null;             // owned DOM root
   let gTabButtons = {};          // tabId -> <button>
+  let gContainers = [];          // last-fetched container list
+  let gLogsOverlay = null;       // logs modal reference
 
   /* ------------------------------------------------------------------ *
    * Storage accessors (sanctioned; never raw localStorage)              *
@@ -170,6 +172,7 @@
   function _closeOverlay() {
     // B3: clean cancel — cannot throw, releases generation token
     _invalidatePolls();
+    if (gLogsOverlay) { gLogsOverlay.remove(); gLogsOverlay = null; }
     if (gPanel) { gPanel.remove(); gPanel = null; }
     gTabButtons = {};
   }
@@ -178,13 +181,37 @@
    * Route table (mirrors sidecar v0.3.0 — exact match, no string eval)  *
    * ------------------------------------------------------------------ */
   const ROUTES = {
-    containers: { list: '/api/containers', action: '/api/containers' },
+    containers: {
+      list: '/api/containers',
+      action: '/api/containers',
+      logs: '/api/containers',
+    },
     images:     { list: '/api/images',     action: '/api/images' },
     volumes:    { list: '/api/volumes',    action: '/api/volumes' },
     networks:   { list: '/api/networks',   info: '/api/networks' },
     compose:    { list: '/api/compose' },
     tunnels:    { list: '/api/tunnels',    action: '/api/tunnels' },
   };
+
+  /* ------------------------------------------------------------------ *
+   * Container action helpers                                             *
+   * ------------------------------------------------------------------ */
+  function _containerAction(containerId, action) {
+    const path = `/api/containers/${containerId}/${action}`;
+    return _scrape(path, { method: 'POST' }).then(function (res) {
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${action} ${containerId}`);
+      return res.json();
+    });
+  }
+
+  function _containerLogs(containerId, tail) {
+    const params = tail ? `?tail=${encodeURIComponent(tail)}` : '';
+    return _scrape(`/api/containers/${containerId}/logs${params}`)
+      .then(function (res) {
+        if (!res.ok) throw new Error(`HTTP ${res.status} logs ${containerId}`);
+        return res.json();
+      });
+  }
 
   function _refreshActiveTab() {
     const route = ROUTES[gActiveTab];
@@ -212,7 +239,173 @@
   /* ------------------------------------------------------------------ *
    * Tab renderers (stubs — flesh out in subsequent phases)              *
    * ------------------------------------------------------------------ */
-  function _renderTabContainers(data) { /* TODO: list/start/stop/restart/logs */ }
+  /* ------------------------------------------------------------------ *
+   * Containers tab                                                       *
+   * ------------------------------------------------------------------ */
+  function _renderTabContainers(data) {
+    const body = gPanel && gPanel.querySelector('.hwx-dtm-body');
+    if (!body) return;
+    _clear(body);
+
+    if (!Array.isArray(data) || data.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'hwx-dtm-empty';
+      empty.textContent = 'No containers found.';
+      body.appendChild(empty);
+      return;
+    }
+
+    gContainers = data;
+    const table = document.createElement('div');
+    table.className = 'hwx-dtm-table';
+
+    for (const c of data) {
+      const id = c.Id || c.id || '';
+      const name = (c.Names && c.Names[0]) || (c.names && c.names[0]) || id.slice(0, 12);
+      const state = c.State || c.state || 'unknown';
+      const image = c.Image || c.image || '';
+      const status = c.Status || c.status || '';
+
+      const row = document.createElement('div');
+      row.className = 'hwx-dtm-row';
+
+      const info = document.createElement('div');
+      info.className = 'hwx-dtm-row-info';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'hwx-dtm-row-name';
+      nameEl.textContent = name;
+      info.appendChild(nameEl);
+      const meta = document.createElement('div');
+      meta.className = 'hwx-dtm-row-meta';
+      meta.textContent = `${state} · ${image} · ${status}`;
+      info.appendChild(meta);
+      row.appendChild(info);
+
+      const actions = document.createElement('div');
+      actions.className = 'hwx-dtm-row-actions';
+
+      const isRunning = state === 'running';
+
+      // Stop / Start
+      if (isRunning) {
+        const stopBtn = document.createElement('button');
+        stopBtn.className = 'hwx-dtm-btn hwx-dtm-btn-danger';
+        stopBtn.textContent = 'Stop';
+        stopBtn.addEventListener('click', function () {
+          _confirmDangerous('Stop container', name, function () {
+            _containerAction(id, 'stop').then(function () {
+              _refreshActiveTab();
+            }).catch(_renderError);
+          });
+        });
+        actions.appendChild(stopBtn);
+      } else {
+        const startBtn = document.createElement('button');
+        startBtn.className = 'hwx-dtm-btn hwx-dtm-btn-primary';
+        startBtn.textContent = 'Start';
+        startBtn.addEventListener('click', function () {
+          _containerAction(id, 'start').then(function () {
+            _refreshActiveTab();
+          }).catch(_renderError);
+        });
+        actions.appendChild(startBtn);
+      }
+
+      // Restart
+      const restartBtn = document.createElement('button');
+      restartBtn.className = 'hwx-dtm-btn hwx-dtm-btn-secondary';
+      restartBtn.textContent = 'Restart';
+      restartBtn.addEventListener('click', function () {
+        _confirmDangerous('Restart container', name, function () {
+          _containerAction(id, 'restart').then(function () {
+            _refreshActiveTab();
+          }).catch(_renderError);
+        });
+      });
+      actions.appendChild(restartBtn);
+
+      // Logs
+      const logsBtn = document.createElement('button');
+      logsBtn.className = 'hwx-dtm-btn hwx-dtm-btn-secondary';
+      logsBtn.textContent = 'Logs';
+      logsBtn.addEventListener('click', function () {
+        _openLogsModal(id, name);
+      });
+      actions.appendChild(logsBtn);
+
+      row.appendChild(actions);
+      table.appendChild(row);
+    }
+
+    body.appendChild(table);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Logs modal                                                            *
+   * ------------------------------------------------------------------ */
+  function _openLogsModal(containerId, containerName) {
+    if (gLogsOverlay) gLogsOverlay.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'hwx-dtm-logs-overlay';
+    gLogsOverlay = overlay;
+
+    const box = document.createElement('div');
+    box.className = 'hwx-dtm-logs-box';
+
+    const header = document.createElement('header');
+    header.className = 'hwx-dtm-logs-header';
+    const title = document.createElement('h3');
+    title.textContent = 'Logs — ';
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = containerName;
+    title.appendChild(nameEl);
+    header.appendChild(title);
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'hwx-dtm-close';
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', function () { overlay.remove(); gLogsOverlay = null; });
+    header.appendChild(closeBtn);
+    box.appendChild(header);
+
+    const tailRow = document.createElement('div');
+    tailRow.className = 'hwx-dtm-logs-controls';
+    const tailLabel = document.createElement('label');
+    tailLabel.textContent = 'Tail lines: ';
+    tailRow.appendChild(tailLabel);
+    const tailInput = document.createElement('input');
+    tailInput.type = 'number';
+    tailInput.min = '1';
+    tailInput.max = '1000';
+    tailInput.value = '100';
+    tailRow.appendChild(tailInput);
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'hwx-dtm-btn hwx-dtm-btn-secondary';
+    refreshBtn.textContent = 'Refresh';
+    tailRow.appendChild(refreshBtn);
+    box.appendChild(tailRow);
+
+    const pre = document.createElement('pre');
+    pre.className = 'hwx-dtm-logs-body';
+    pre.textContent = 'Loading logs…';
+    box.appendChild(pre);
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    function fetchLogs() {
+      const tail = parseInt(tailInput.value, 10);
+      const clampedTail = Math.min(1000, Math.max(1, isNaN(tail) ? 100 : tail));
+      _containerLogs(containerId, clampedTail).then(function (data) {
+        pre.textContent = (data && (data.logs || data.output || data)) || '(no output)';
+      }).catch(function (err) {
+        pre.textContent = err.message || String(err);
+      });
+    }
+
+    refreshBtn.addEventListener('click', fetchLogs);
+    fetchLogs();
+  }
   function _renderTabImages(data)     { /* TODO: list/history/remove */ }
   function _renderTabVolumes(data)    { /* TODO: list/usage/remove */ }
   function _renderTabNetworks(data)   { /* TODO: list/inspect */ }

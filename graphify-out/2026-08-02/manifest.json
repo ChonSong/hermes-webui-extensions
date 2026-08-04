@@ -1,0 +1,437 @@
+{
+  "examples/loopback-sidecar/manifest.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "56021524bf1144a2669c98c10292f8c9",
+    "semantic_hash": "56021524bf1144a2669c98c10292f8c9"
+  },
+  "examples/manifest-bundle/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9d1e44643d2097c9ded084d776e5cfec",
+    "semantic_hash": "9d1e44643d2097c9ded084d776e5cfec"
+  },
+  "examples/sidecar-scaffold/routes_impl.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "817d95af1f5a73af2eb9485dd4cf34ad",
+    "semantic_hash": "817d95af1f5a73af2eb9485dd4cf34ad"
+  },
+  "examples/sidecar-scaffold/sidecar.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "9909ba78604de1ef590e62054360683f",
+    "semantic_hash": "9909ba78604de1ef590e62054360683f"
+  },
+  "examples/sidecar-scaffold/sidecar.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "d17e3f8c5b997de3fd4d415bbc5740a9",
+    "semantic_hash": "d17e3f8c5b997de3fd4d415bbc5740a9"
+  },
+  "examples/sidecar-scaffold/sidecar_base.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "68e7bb0eb57b5766e4b6b5ba22fc5ab1",
+    "semantic_hash": "68e7bb0eb57b5766e4b6b5ba22fc5ab1"
+  },
+  "extensions/assistant-avatar/assets/avatar.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "bdec7d01784158723e5bf94e6048b30a",
+    "semantic_hash": "bdec7d01784158723e5bf94e6048b30a"
+  },
+  "extensions/assistant-avatar/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "a743466fdce23083ac76f6b7ca02a994",
+    "semantic_hash": "a743466fdce23083ac76f6b7ca02a994"
+  },
+  "extensions/assistant-avatar/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "39812110ee5ada7b7f4efc045aec24df",
+    "semantic_hash": "39812110ee5ada7b7f4efc045aec24df"
+  },
+  "extensions/chat-tiling/assets/tiling.js": {
+    "mtime": 1785464635.3955657,
+    "ast_hash": "8cfe53179b4e24102096c4c21c7d9fbd",
+    "semantic_hash": "8cfe53179b4e24102096c4c21c7d9fbd"
+  },
+  "extensions/chat-tiling/extension.json": {
+    "mtime": 1785464264.7909606,
+    "ast_hash": "75eaf06f00dffb7aa0321c6ad2c79e97",
+    "semantic_hash": "75eaf06f00dffb7aa0321c6ad2c79e97"
+  },
+  "extensions/chat-tiling/manifest.json": {
+    "mtime": 1785464264.7829607,
+    "ast_hash": "e18c6fe4cfd8dcfe3f95a2a62aa82e03",
+    "semantic_hash": "e18c6fe4cfd8dcfe3f95a2a62aa82e03"
+  },
+  "extensions/custom-avatar/assets/custom-avatar.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "62268137150a7665d5defe601fa806ad",
+    "semantic_hash": "62268137150a7665d5defe601fa806ad"
+  },
+  "extensions/custom-avatar/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "cabec48e2f74754c47a13063c697fc40",
+    "semantic_hash": "cabec48e2f74754c47a13063c697fc40"
+  },
+  "extensions/custom-avatar/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "6c131bf56f6d405ae1c25fbb270a4e43",
+    "semantic_hash": "6c131bf56f6d405ae1c25fbb270a4e43"
+  },
+  "extensions/custom-branding/assets/custom-branding.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "af8501135e4dc64a1a7cd7d9080be43b",
+    "semantic_hash": "af8501135e4dc64a1a7cd7d9080be43b"
+  },
+  "extensions/custom-branding/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "6516f1eb1310a796b1a1e31e398bc995",
+    "semantic_hash": "6516f1eb1310a796b1a1e31e398bc995"
+  },
+  "extensions/custom-branding/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "3b3077fa9f095fc86083a1ccb967d558",
+    "semantic_hash": "3b3077fa9f095fc86083a1ccb967d558"
+  },
+  "extensions/desktop-companion/assets/companion-adapter.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "cf5d691065ba49080a2e302aac8e8262",
+    "semantic_hash": "cf5d691065ba49080a2e302aac8e8262"
+  },
+  "extensions/desktop-companion/extension.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "f4c68cbbed3b55377c0568a0c81f02c5",
+    "semantic_hash": "f4c68cbbed3b55377c0568a0c81f02c5"
+  },
+  "extensions/desktop-companion/manifest.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "7a39d4ccd339e8f4ecf30c4acbcb0a19",
+    "semantic_hash": "7a39d4ccd339e8f4ecf30c4acbcb0a19"
+  },
+  "extensions/desktop-companion/pets/courier/pet.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "8dec764a1f453a8c09072d5eae94c87a",
+    "semantic_hash": "8dec764a1f453a8c09072d5eae94c87a"
+  },
+  "extensions/desktop-companion/pets/keeper/pet.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "b9054046867d686772ccb9c574e81178",
+    "semantic_hash": "b9054046867d686772ccb9c574e81178"
+  },
+  "extensions/desktop-companion/pets/shiba/pet.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9ae7047bacf41f2308f40f97f0d54aa5",
+    "semantic_hash": "9ae7047bacf41f2308f40f97f0d54aa5"
+  },
+  "extensions/e-ink-skin/assets/e-ink-skin.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "83ecd35a5cb7701e51954f04e2d68eb2",
+    "semantic_hash": "83ecd35a5cb7701e51954f04e2d68eb2"
+  },
+  "extensions/e-ink-skin/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "f75b55c7303908077d74805dcb7fee71",
+    "semantic_hash": "f75b55c7303908077d74805dcb7fee71"
+  },
+  "extensions/e-ink-skin/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "57dcfc5fcc3f2c5c91fcb1d9730526e4",
+    "semantic_hash": "57dcfc5fcc3f2c5c91fcb1d9730526e4"
+  },
+  "extensions/external-app-tab/assets/external-app-tab.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2daf76c939ef37e08c140da01e138c47",
+    "semantic_hash": "2daf76c939ef37e08c140da01e138c47"
+  },
+  "extensions/external-app-tab/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "59dac934f2344787961916761f86148a",
+    "semantic_hash": "59dac934f2344787961916761f86148a"
+  },
+  "extensions/external-app-tab/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "133670b5eac8e33b8676061fbcc8c0c3",
+    "semantic_hash": "133670b5eac8e33b8676061fbcc8c0c3"
+  },
+  "extensions/mcp-tool-shortcuts/assets/mcp-tool-shortcuts.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "67ab5fd0088c9899b664979e0297ef8b",
+    "semantic_hash": "67ab5fd0088c9899b664979e0297ef8b"
+  },
+  "extensions/mcp-tool-shortcuts/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "b86697ace4a68c956310c9c2362ff41a",
+    "semantic_hash": "b86697ace4a68c956310c9c2362ff41a"
+  },
+  "extensions/mcp-tool-shortcuts/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "96bff93c81a433aff9283b830472461c",
+    "semantic_hash": "96bff93c81a433aff9283b830472461c"
+  },
+  "extensions/message-pins/assets/message-pins.js": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "41d2b185458f1b7a5d50c6b6f72b1dc2",
+    "semantic_hash": "41d2b185458f1b7a5d50c6b6f72b1dc2"
+  },
+  "extensions/message-pins/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "c2d3faa51c2caebf7c35501d2ce4dd74",
+    "semantic_hash": "c2d3faa51c2caebf7c35501d2ce4dd74"
+  },
+  "extensions/message-pins/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9dd7d66eca447c709b7f1df47fff0678",
+    "semantic_hash": "9dd7d66eca447c709b7f1df47fff0678"
+  },
+  "extensions/mobile-conversations/assets/mobile-conversations.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "e435b3479567475aa96171c5d20cb45d",
+    "semantic_hash": "e435b3479567475aa96171c5d20cb45d"
+  },
+  "extensions/mobile-conversations/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "a30f9973e133864ce510641192e24065",
+    "semantic_hash": "a30f9973e133864ce510641192e24065"
+  },
+  "extensions/mobile-conversations/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "eebdf22b702b5aea2acb2c83a3c392fb",
+    "semantic_hash": "eebdf22b702b5aea2acb2c83a3c392fb"
+  },
+  "extensions/mobile-haptics/assets/mobile-haptics.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2ec087fa56bc3125da5c9c4a6932b915",
+    "semantic_hash": "2ec087fa56bc3125da5c9c4a6932b915"
+  },
+  "extensions/mobile-haptics/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "85b18fc08ac1dd385b7e685a2867e127",
+    "semantic_hash": "85b18fc08ac1dd385b7e685a2867e127"
+  },
+  "extensions/mobile-haptics/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "c2e4ae24735325e1da27fb8b26a6682b",
+    "semantic_hash": "c2e4ae24735325e1da27fb8b26a6682b"
+  },
+  "extensions/model-favorites/assets/model-favorites.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "4aeaceb2a7f1fd81348719a52ae56d46",
+    "semantic_hash": "4aeaceb2a7f1fd81348719a52ae56d46"
+  },
+  "extensions/model-favorites/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "e1c7de78264fb221ceea53d02f6b43ff",
+    "semantic_hash": "e1c7de78264fb221ceea53d02f6b43ff"
+  },
+  "extensions/model-favorites/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9e06b85348785f99cc33fd2d0c137d46",
+    "semantic_hash": "9e06b85348785f99cc33fd2d0c137d46"
+  },
+  "extensions/profile-avatars/assets/avatars.js": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "87f13aa78e0aa0382f9567ae621ee415",
+    "semantic_hash": "87f13aa78e0aa0382f9567ae621ee415"
+  },
+  "extensions/profile-avatars/extension.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "98fe4ff76a0b52a41912ffc4c2b9e430",
+    "semantic_hash": "98fe4ff76a0b52a41912ffc4c2b9e430"
+  },
+  "extensions/profile-avatars/manifest.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "e94c32675c71260eb40968dccb76036d",
+    "semantic_hash": "e94c32675c71260eb40968dccb76036d"
+  },
+  "extensions/profile-avatars/sidecar/avatars.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "1d7ed8e2d3011c839a3f5b9ce880395e",
+    "semantic_hash": "1d7ed8e2d3011c839a3f5b9ce880395e"
+  },
+  "extensions/profile-avatars/sidecar/routes_impl.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "c58c93d6317872c240999c5bdadac2c6",
+    "semantic_hash": "c58c93d6317872c240999c5bdadac2c6"
+  },
+  "extensions/profile-avatars/sidecar/sidecar.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "8dfdd9f439fa21933f6872b268733d4a",
+    "semantic_hash": "8dfdd9f439fa21933f6872b268733d4a"
+  },
+  "extensions/profile-avatars/sidecar/sidecar.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "d17e3f8c5b997de3fd4d415bbc5740a9",
+    "semantic_hash": "d17e3f8c5b997de3fd4d415bbc5740a9"
+  },
+  "extensions/profile-avatars/sidecar/sidecar_base.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "68e7bb0eb57b5766e4b6b5ba22fc5ab1",
+    "semantic_hash": "68e7bb0eb57b5766e4b6b5ba22fc5ab1"
+  },
+  "extensions/rss-feeds/assets/feeds-inject.js": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "e7c7dc7e9e0607166d228b339619e627",
+    "semantic_hash": "e7c7dc7e9e0607166d228b339619e627"
+  },
+  "extensions/rss-feeds/assets/feeds.js": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "dd659609017f0f5e1890b0da9cdf0af9",
+    "semantic_hash": "dd659609017f0f5e1890b0da9cdf0af9"
+  },
+  "extensions/rss-feeds/extension.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "841ed874b37b05a0b4ac2d83b3a28cfb",
+    "semantic_hash": "841ed874b37b05a0b4ac2d83b3a28cfb"
+  },
+  "extensions/rss-feeds/manifest.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "988b54003b9cbfb9091e61a6646fcde6",
+    "semantic_hash": "988b54003b9cbfb9091e61a6646fcde6"
+  },
+  "extensions/rss-feeds/sidecar/feeds.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "4c7bd86c3e7aa05dd30ed531c8c7e217",
+    "semantic_hash": "4c7bd86c3e7aa05dd30ed531c8c7e217"
+  },
+  "extensions/rss-feeds/sidecar/routes_impl.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "465600e6309af1e78212ea9b6bd50af2",
+    "semantic_hash": "465600e6309af1e78212ea9b6bd50af2"
+  },
+  "extensions/rss-feeds/sidecar/shim.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "e725546fde0b8095d18f9a1c00ae230a",
+    "semantic_hash": "e725546fde0b8095d18f9a1c00ae230a"
+  },
+  "extensions/rss-feeds/sidecar/sidecar.json": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "217f4a86388aafe128992a09e76fa138",
+    "semantic_hash": "217f4a86388aafe128992a09e76fa138"
+  },
+  "extensions/rss-feeds/sidecar/sidecar.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "d17e3f8c5b997de3fd4d415bbc5740a9",
+    "semantic_hash": "d17e3f8c5b997de3fd4d415bbc5740a9"
+  },
+  "extensions/rss-feeds/sidecar/sidecar_base.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "68e7bb0eb57b5766e4b6b5ba22fc5ab1",
+    "semantic_hash": "68e7bb0eb57b5766e4b6b5ba22fc5ab1"
+  },
+  "extensions/rss-feeds/sidecar/test_job_ownership.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "fa67367088ce4d733e91b1418c723db7",
+    "semantic_hash": "fa67367088ce4d733e91b1418c723db7"
+  },
+  "extensions/session-export-pdf/assets/session-export-pdf.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "b8b3e0d4101e8a76c33be32dab4095b3",
+    "semantic_hash": "b8b3e0d4101e8a76c33be32dab4095b3"
+  },
+  "extensions/session-export-pdf/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "ef6ad7f45d53d9caa3c75e80f4f8a560",
+    "semantic_hash": "ef6ad7f45d53d9caa3c75e80f4f8a560"
+  },
+  "extensions/session-export-pdf/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "53fd3035defd8edd81ec35603e0e59bf",
+    "semantic_hash": "53fd3035defd8edd81ec35603e0e59bf"
+  },
+  "extensions/skin-pack/assets/skin-pack.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "15a310080a15a79ab26bfe4f89bc6fb4",
+    "semantic_hash": "15a310080a15a79ab26bfe4f89bc6fb4"
+  },
+  "extensions/skin-pack/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "6cac58d28e8879e167b46cbec1d9e62e",
+    "semantic_hash": "6cac58d28e8879e167b46cbec1d9e62e"
+  },
+  "extensions/skin-pack/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "8f5ca1a535e669a3a2bda2420fed8b14",
+    "semantic_hash": "8f5ca1a535e669a3a2bda2420fed8b14"
+  },
+  "extensions/theme-creator/assets/theme-creator.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2970d38ff7f5dac33f94d1287dc3376b",
+    "semantic_hash": "2970d38ff7f5dac33f94d1287dc3376b"
+  },
+  "extensions/theme-creator/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "fcd3329291842e0a301db88eb3f851df",
+    "semantic_hash": "fcd3329291842e0a301db88eb3f851df"
+  },
+  "extensions/theme-creator/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "e5c8ebcd20776da9571a7a75b27d4f3b",
+    "semantic_hash": "e5c8ebcd20776da9571a7a75b27d4f3b"
+  },
+  "package.json": {
+    "mtime": 1785464635.4155676,
+    "ast_hash": "4baad1cfdc393b1f3efe591aeb7cfdc6",
+    "semantic_hash": "4baad1cfdc393b1f3efe591aeb7cfdc6"
+  },
+  "scripts/check-sidecar-usage.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "30c69d1e0e501d2965dc809ebc2fc20a",
+    "semantic_hash": "30c69d1e0e501d2965dc809ebc2fc20a"
+  },
+  "scripts/extension-registry-lib.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "5b8940d00f36e760e39228bdec16b334",
+    "semantic_hash": "5b8940d00f36e760e39228bdec16b334"
+  },
+  "scripts/generate-registry.mjs": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "be011661b5a8d15c63c57136e7d0b0c3",
+    "semantic_hash": "be011661b5a8d15c63c57136e7d0b0c3"
+  },
+  "scripts/scan-extension-safety.mjs": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2ba98307f9ebac04d18ecb436bedaed6",
+    "semantic_hash": "2ba98307f9ebac04d18ecb436bedaed6"
+  },
+  "scripts/sidecar-contract-lib.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "ae1f6fbb15665b32f35ed2655ef2e11a",
+    "semantic_hash": "ae1f6fbb15665b32f35ed2655ef2e11a"
+  },
+  "scripts/sync-sidecar-base.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "73a599a1250c9a6d238282b60830c9c2",
+    "semantic_hash": "73a599a1250c9a6d238282b60830c9c2"
+  },
+  "scripts/test-chat-tiling.mjs": {
+    "mtime": 1785456532.8406973,
+    "ast_hash": "7a33c3106c1c03d81bf98aedffab71be",
+    "semantic_hash": "7a33c3106c1c03d81bf98aedffab71be"
+  },
+  "scripts/test-extension-validator.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "a4821cb6484b97fe9e04053553f3eaf7",
+    "semantic_hash": "a4821cb6484b97fe9e04053553f3eaf7"
+  },
+  "scripts/test-message-pins-sync.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "ddb17a89e36d7bf121d6b7d1303afbc1",
+    "semantic_hash": "ddb17a89e36d7bf121d6b7d1303afbc1"
+  },
+  "scripts/test-sidecar-contract.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "201cd7a663df3e0182660c3f811a5ee0",
+    "semantic_hash": "201cd7a663df3e0182660c3f811a5ee0"
+  },
+  "scripts/test-sidecar-scaffold.py": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "476adfc2e355c1299e047e5d4f290bf8",
+    "semantic_hash": "476adfc2e355c1299e047e5d4f290bf8"
+  },
+  "scripts/validate-desktop-companion.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "806b3463bd3ca594d751f965ee925538",
+    "semantic_hash": "806b3463bd3ca594d751f965ee925538"
+  },
+  "scripts/validate-extensions.mjs": {
+    "mtime": 1785455313.1143847,
+    "ast_hash": "86432c2bce8317ef1ff1cee5b13bc0d0",
+    "semantic_hash": "86432c2bce8317ef1ff1cee5b13bc0d0"
+  }
+}
