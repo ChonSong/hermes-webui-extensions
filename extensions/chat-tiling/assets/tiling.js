@@ -13,7 +13,9 @@
 (()=>{
 'use strict';
 
-const S = (typeof window!=='undefined'&&window.S)?window.S:{};
+const getS = () => {
+  try { return (typeof S !== 'undefined') ? S : {}; } catch(_) { return {}; }
+};
 
 // ── Feature detection ──
 function hasStableApi(){
@@ -143,21 +145,25 @@ function focusTile(id,opts){
   if(tile.session&&tile.session.session_id&&typeof window.loadSession==='function'){
     window.loadSession(tile.session.session_id,{skipExtHooks:true}).then(()=>{
       if(gen!==T._actGen)return;
-      tile.messages=[...(S.messages||[])];
-      tile.busy=!!S.busy;
-      tile.activeStreamId=S.activeStreamId||null;
-      tile.session=S.session;
+      tile.messages=[...(getS().messages||[])];
+      tile.busy=!!getS().busy;
+      tile.activeStreamId=getS().activeStreamId||null;
+      tile.session=getS().session;
+      renderSnapshot(tile);
       updateHeader(tile);
     }).catch(()=>{
       if(gen!==T._actGen)return;
+      renderSnapshot(tile);
       updateHeader(tile);
     });
   } else {
+    renderSnapshot(tile);
     updateHeader(tile);
   }
   startWatcher();
   // Immediate sync of busy state from S to focused tile
-  if(S.messages&&S.messages.length>0)tile.messages=[...S.messages];tile.busy=!!S.busy;tile.activeStreamId=S.activeStreamId||null;
+  if(getS().messages&&getS().messages.length>0)tile.messages=[...getS().messages];tile.busy=!!getS().busy;tile.activeStreamId=getS().activeStreamId||null;
+  renderSnapshot(tile);
   updateHeader(tile);
   if(typeof syncTopbar==='function')syncTopbar();
   if(typeof syncModelChip==='function')syncModelChip();
@@ -235,7 +241,7 @@ function refreshGrid(){
 // ── Busy watcher ──
 function startWatcher(){stopWatcher();T._w=setInterval(()=>{
   const t=at();if(!t||T.activeId===null){stopWatcher();return}
-  if(S.messages&&S.messages.length>0)t.messages=[...S.messages];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;if(!S.busy&&t.session)t.session=S.session;
+  if(getS().messages&&getS().messages.length>0)t.messages=[...getS().messages];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;if(!getS().busy&&t.session)t.session=getS().session;
   updateHeader(t);
 },500)}
 function stopWatcher(){T._w&&(clearInterval(T._w),T._w=null)}
@@ -291,9 +297,9 @@ async function showGrid(cols,rows){
     const t={id:T.nextId++,sid:null,session:null,messages:[],busy:false,activeStreamId:null,maximized:false,_closing:false,_pending:false,el:null,cv:'',mv:null};
     T.tiles.push(t);t.el=createTile(t);T.grid.appendChild(t.el);updateHeader(t)
   }
-  if(S.session&&S.session.session_id&&T.tiles.length>0){
+  if(getS().session&&getS().session.session_id&&T.tiles.length>0){
     const t=T.tiles[0];
-    t.sid=S.session.session_id;t.session=S.session;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;
+    t.sid=getS().session.session_id;t.session=getS().session;t.messages=[...(getS().messages||[])];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;
     updateHeader(t);focusTile(t.id);
   } else if(T.tiles.length>0){
     focusTile(T.tiles[0].id);
@@ -357,14 +363,14 @@ async function hideGrid(){
   const s=T._saved;T._saved=null;
   // If we have a focused tile with a session, restore from it (async)
   if(restoreFrom&&restoreFrom!==s&&restoreFrom.session_id&&typeof window.loadSession==='function'){
-    // Optimistic update: set S.session immediately so tests/loadSession handlers see correct state
-    S.session=restoreFrom;
-    S.messages=[...(focusedTile.messages||[])];
+    // Optimistic update: set getS().session immediately so tests/loadSession handlers see correct state
+    getS().session=restoreFrom;
+    getS().messages=[...(focusedTile.messages||[])];
     window.loadSession(restoreFrom.session_id,{skipExtHooks:true}).catch(()=>{
-      if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
+      if(s)Object.assign(getS(),s);else{getS().session=null;getS().messages=[];getS().busy=false;getS().activeStreamId=null}
     })
   } else {
-    if(s)Object.assign(S,s);else{S.session=null;S.messages=[];S.busy=false;S.activeStreamId=null}
+    if(s)Object.assign(getS(),s);else{getS().session=null;getS().messages=[];getS().busy=false;getS().activeStreamId=null}
   }
   const cm=document.getElementById('msg');if(cm)cm.value=savedComposer||'';
   if(typeof autoResize==='function')autoResize();
@@ -477,7 +483,7 @@ function initCapture(){
         // and set the composer, so capture it instead of blanking it.
         const cm=document.getElementById('msg');if(cm)t.cv=cm.value;
         const ms=document.getElementById('modelSelect');if(ms)t.mv=ms.value;
-        t.sid=sid;t.session=data;t.messages=[...(S.messages||[])];t.busy=!!S.busy;t.activeStreamId=S.activeStreamId||null;
+        t.sid=sid;t.session=data;t.messages=[...(getS().messages||[])];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;
         updateHeader(t);badge(sid,1);renderSnapshot(t);
         focusTile(t.id,{alreadyLoaded:true});
       }
