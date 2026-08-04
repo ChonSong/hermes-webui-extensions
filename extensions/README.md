@@ -44,3 +44,5 @@ need it and maintainers agree on the shared contract.
 - `external-app-tab`: pin a compatible self-hosted web app (Grafana, a
   dashboard, or another framable tool) as a tab inside the WebUI via an iframe
   (needs the core `HERMES_WEBUI_CSP_FRAME_EXTRA` knob for external origins).
+- `project-allocator`: suggest and assign projects for unassigned sessions via
+  keyword matching, with one-click assign, manual picker, and undo support.

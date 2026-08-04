@@ -1,0 +1,77 @@
+[
+  {
+    "action": "fill @e2 Cheong02",
+    "relativeTimeSec": 10,
+    "timestamp": "2026-08-03T15:56:19.923Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 17.8,
+    "timestamp": "2026-08-03T15:56:27.656Z"
+  },
+  {
+    "action": "fill @e2 Cheong02",
+    "relativeTimeSec": 27.8,
+    "timestamp": "2026-08-03T15:56:37.722Z"
+  },
+  {
+    "action": "click @e3",
+    "relativeTimeSec": 29.1,
+    "timestamp": "2026-08-03T15:56:39.020Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 31.6,
+    "timestamp": "2026-08-03T15:56:41.518Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 34,
+    "timestamp": "2026-08-03T15:56:43.885Z"
+  },
+  {
+    "action": "click @e50",
+    "relativeTimeSec": 44,
+    "timestamp": "2026-08-03T15:56:53.924Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 46.4,
+    "timestamp": "2026-08-03T15:56:56.257Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 48.7,
+    "timestamp": "2026-08-03T15:56:58.556Z"
+  },
+  {
+    "action": "click @e32",
+    "relativeTimeSec": 61,
+    "timestamp": "2026-08-03T15:57:10.922Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 63.4,
+    "timestamp": "2026-08-03T15:57:13.337Z"
+  },
+  {
+    "action": "screenshot 02-tiling-2x1-v3.png",
+    "relativeTimeSec": 65.7,
+    "timestamp": "2026-08-03T15:57:15.624Z"
+  },
+  {
+    "action": "eval JSON.stringify({extTileGrid: !!document.getElementById('ext-tile-grid'), extTileMessages: document.querySelectorAll('.ext-tile-msg-inner').length, msgInner: !!document.getElementById('msgInner')})",
+    "relativeTimeSec": 99.6,
+    "timestamp": "2026-08-03T15:57:49.443Z"
+  },
+  {
+    "action": "eval JSON.stringify({S_session_id: S.session?.session_id, S_session_title: S.session?.title, S_messages_len: S.messages?.length})",
+    "relativeTimeSec": 138.1,
+    "timestamp": "2026-08-03T15:58:27.986Z"
+  },
+  {
+    "action": "eval JSON.stringify(T.tiles.map(t => ({id: t.id, sid: t.sid, session_id: t.session?.session_id, title: t.session?.title})))",
+    "relativeTimeSec": 146,
+    "timestamp": "2026-08-03T15:58:35.893Z"
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "startedAt": "2026-08-03T15:56:09.891Z",
+  "description": "Chat Tiling v3 debug",
+  "outputDir": "/home/sc/workspace/hermes-webui-extensions/proofshot-artifacts",
+  "sessionDir": "/home/sc/workspace/hermes-webui-extensions/proofshot-artifacts/2026-08-03_15-56-06_chat-tiling-v3-debug",
+  "sessionName": "proofshot-2026-08-03_15-56-06",
+  "videoPath": "/home/sc/workspace/hermes-webui-extensions/proofshot-artifacts/2026-08-03_15-56-06_chat-tiling-v3-debug/session.webm",
+  "serverErrorLog": "/home/sc/workspace/hermes-webui-extensions/proofshot-artifacts/2026-08-03_15-56-06_chat-tiling-v3-debug/server.log",
+  "port": 3000,
+  "serverCommand": null,
+  "serverAlreadyRunning": true,
+  "recordingActive": true,
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  }
+}

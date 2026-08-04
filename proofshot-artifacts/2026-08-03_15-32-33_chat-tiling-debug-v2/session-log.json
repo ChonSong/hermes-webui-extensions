@@ -1,0 +1,77 @@
+[
+  {
+    "action": "fill @e2 Cheong02",
+    "relativeTimeSec": 5,
+    "timestamp": "2026-08-03T15:32:44.491Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 11.2,
+    "timestamp": "2026-08-03T15:32:50.656Z"
+  },
+  {
+    "action": "fill @e2 Cheong02",
+    "relativeTimeSec": 20,
+    "timestamp": "2026-08-03T15:32:59.497Z"
+  },
+  {
+    "action": "click @e3",
+    "relativeTimeSec": 21.3,
+    "timestamp": "2026-08-03T15:33:00.794Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 23.7,
+    "timestamp": "2026-08-03T15:33:03.142Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 26,
+    "timestamp": "2026-08-03T15:33:05.430Z"
+  },
+  {
+    "action": "click @e50",
+    "relativeTimeSec": 36.8,
+    "timestamp": "2026-08-03T15:33:16.270Z"
+  },
+  {
+    "action": "wait 1000",
+    "relativeTimeSec": 38.2,
+    "timestamp": "2026-08-03T15:33:17.651Z"
+  },
+  {
+    "action": "eval JSON.stringify({session: S.session ? {session_id: S.session.session_id, title: S.session.title, display_title: S.session.display_title, _state_db_title: S.session._state_db_title} : null, messages_count: S.messages ? S.messages.length : 0})",
+    "relativeTimeSec": 39.5,
+    "timestamp": "2026-08-03T15:33:18.964Z"
+  },
+  {
+    "action": "click @e32",
+    "relativeTimeSec": 54.4,
+    "timestamp": "2026-08-03T15:33:33.874Z"
+  },
+  {
+    "action": "wait 1500",
+    "relativeTimeSec": 55.8,
+    "timestamp": "2026-08-03T15:33:35.259Z"
+  },
+  {
+    "action": "screenshot 01-split-2x1-session-loaded.png",
+    "relativeTimeSec": 57.6,
+    "timestamp": "2026-08-03T15:33:37.065Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 118.8,
+    "timestamp": "2026-08-03T15:34:38.275Z"
+  },
+  {
+    "action": "click @e35",
+    "relativeTimeSec": 120.5,
+    "timestamp": "2026-08-03T15:34:39.963Z"
+  },
+  {
+    "action": "wait 500",
+    "relativeTimeSec": 121.9,
+    "timestamp": "2026-08-03T15:34:41.324Z"
+  }
+]

@@ -1,0 +1,142 @@
+[
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 5,
+    "timestamp": "2026-08-03T15:45:33.658Z"
+  },
+  {
+    "action": "fill @e2 Cheong02",
+    "relativeTimeSec": 16.8,
+    "timestamp": "2026-08-03T15:45:45.433Z"
+  },
+  {
+    "action": "click @e3",
+    "relativeTimeSec": 18.2,
+    "timestamp": "2026-08-03T15:45:46.868Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 20.6,
+    "timestamp": "2026-08-03T15:45:49.315Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 23.1,
+    "timestamp": "2026-08-03T15:45:51.751Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 31.8,
+    "timestamp": "2026-08-03T15:46:00.438Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 44.4,
+    "timestamp": "2026-08-03T15:46:13.043Z"
+  },
+  {
+    "action": "click @e46",
+    "relativeTimeSec": 58.2,
+    "timestamp": "2026-08-03T15:46:26.861Z"
+  },
+  {
+    "action": "wait 1500",
+    "relativeTimeSec": 60.3,
+    "timestamp": "2026-08-03T15:46:29.010Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 62.8,
+    "timestamp": "2026-08-03T15:46:31.493Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 73.3,
+    "timestamp": "2026-08-03T15:46:42.005Z"
+  },
+  {
+    "action": "click @e46",
+    "relativeTimeSec": 89.1,
+    "timestamp": "2026-08-03T15:46:57.783Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 91.5,
+    "timestamp": "2026-08-03T15:47:00.146Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 93.8,
+    "timestamp": "2026-08-03T15:47:02.522Z"
+  },
+  {
+    "action": "click @e205",
+    "relativeTimeSec": 110,
+    "timestamp": "2026-08-03T15:47:18.710Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 112.8,
+    "timestamp": "2026-08-03T15:47:21.446Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 115.1,
+    "timestamp": "2026-08-03T15:47:23.757Z"
+  },
+  {
+    "action": "screenshot current-state.png",
+    "relativeTimeSec": 123.3,
+    "timestamp": "2026-08-03T15:47:32.013Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 148.2,
+    "timestamp": "2026-08-03T15:47:56.909Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 164.7,
+    "timestamp": "2026-08-03T15:48:13.360Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 195.6,
+    "timestamp": "2026-08-03T15:48:44.257Z"
+  },
+  {
+    "action": "click @e33",
+    "relativeTimeSec": 249.2,
+    "timestamp": "2026-08-03T15:49:37.919Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 250.6,
+    "timestamp": "2026-08-03T15:49:39.226Z"
+  },
+  {
+    "action": "screenshot after-split-2x1.png",
+    "relativeTimeSec": 252.9,
+    "timestamp": "2026-08-03T15:49:41.571Z"
+  },
+  {
+    "action": "click @e33",
+    "relativeTimeSec": 282.6,
+    "timestamp": "2026-08-03T15:50:11.281Z"
+  },
+  {
+    "action": "wait 1500",
+    "relativeTimeSec": 284.9,
+    "timestamp": "2026-08-03T15:50:13.589Z"
+  },
+  {
+    "action": "screenshot debug-2x1.png",
+    "relativeTimeSec": 286.8,
+    "timestamp": "2026-08-03T15:50:15.461Z"
+  },
+  {
+    "action": "stop",
+    "relativeTimeSec": 317.7,
+    "timestamp": "2026-08-03T15:50:46.406Z"
+  }
+]

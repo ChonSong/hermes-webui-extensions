@@ -1,0 +1,72 @@
+[
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 5,
+    "timestamp": "2026-08-03T15:28:30.415Z"
+  },
+  {
+    "action": "fill @e2 Cheong02",
+    "relativeTimeSec": 13.2,
+    "timestamp": "2026-08-03T15:28:38.627Z"
+  },
+  {
+    "action": "click @e3",
+    "relativeTimeSec": 14.6,
+    "timestamp": "2026-08-03T15:28:39.938Z"
+  },
+  {
+    "action": "wait 2000",
+    "relativeTimeSec": 22.7,
+    "timestamp": "2026-08-03T15:28:48.055Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 25,
+    "timestamp": "2026-08-03T15:28:50.355Z"
+  },
+  {
+    "action": "click @e50",
+    "relativeTimeSec": 36.2,
+    "timestamp": "2026-08-03T15:29:01.559Z"
+  },
+  {
+    "action": "wait 1500",
+    "relativeTimeSec": 37.5,
+    "timestamp": "2026-08-03T15:29:02.890Z"
+  },
+  {
+    "action": "snapshot -i",
+    "relativeTimeSec": 39.3,
+    "timestamp": "2026-08-03T15:29:04.679Z"
+  },
+  {
+    "action": "click @e32",
+    "relativeTimeSec": 49.3,
+    "timestamp": "2026-08-03T15:29:14.695Z"
+  },
+  {
+    "action": "wait 1000",
+    "relativeTimeSec": 50.7,
+    "timestamp": "2026-08-03T15:29:16.101Z"
+  },
+  {
+    "action": "screenshot 01-tiling-2x1.png",
+    "relativeTimeSec": 52,
+    "timestamp": "2026-08-03T15:29:17.402Z"
+  },
+  {
+    "action": "eval JSON.stringify({session: S.session ? {session_id: S.session.session_id, title: S.session.title, display_title: S.session.display_title, _state_db_title: S.session._state_db_title} : null, tiles: T.tiles.map(t => ({id: t.id, sid: t.sid, session: t.session ? {title: t.session.title, display_title: t.session.display_title} : null}))})",
+    "relativeTimeSec": 85.3,
+    "timestamp": "2026-08-03T15:29:50.731Z"
+  },
+  {
+    "action": "eval JSON.stringify({session: S.session ? {session_id: S.session.session_id, title: S.session.title, display_title: S.session.display_title, _state_db_title: S.session._state_db_title} : null, messages_count: S.messages ? S.messages.length : 0, has_loadSession: typeof window.loadSession, has_registerHandler: typeof window.registerHermesSessionOpenHandler})",
+    "relativeTimeSec": 94.1,
+    "timestamp": "2026-08-03T15:29:59.521Z"
+  },
+  {
+    "action": "eval JSON.stringify(Object.keys(window).filter(k=>k.startsWith('__')||k.includes('hermes')||k.includes('Hermes')||k.includes('ext')).slice(0,30))",
+    "relativeTimeSec": 175.3,
+    "timestamp": "2026-08-03T15:31:20.636Z"
+  }
+]

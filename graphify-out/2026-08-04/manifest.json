@@ -1,0 +1,422 @@
+{
+  "examples/loopback-sidecar/manifest.json": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "1a8b131b0da9171fcfce46a4a3040c46",
+    "semantic_hash": ""
+  },
+  "examples/manifest-bundle/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9d1e44643d2097c9ded084d776e5cfec",
+    "semantic_hash": "9d1e44643d2097c9ded084d776e5cfec"
+  },
+  "extensions/assistant-avatar/assets/avatar.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "bdec7d01784158723e5bf94e6048b30a",
+    "semantic_hash": "bdec7d01784158723e5bf94e6048b30a"
+  },
+  "extensions/assistant-avatar/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "a743466fdce23083ac76f6b7ca02a994",
+    "semantic_hash": "a743466fdce23083ac76f6b7ca02a994"
+  },
+  "extensions/assistant-avatar/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "39812110ee5ada7b7f4efc045aec24df",
+    "semantic_hash": "39812110ee5ada7b7f4efc045aec24df"
+  },
+  "extensions/custom-avatar/assets/custom-avatar.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "62268137150a7665d5defe601fa806ad",
+    "semantic_hash": "62268137150a7665d5defe601fa806ad"
+  },
+  "extensions/custom-avatar/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "cabec48e2f74754c47a13063c697fc40",
+    "semantic_hash": "cabec48e2f74754c47a13063c697fc40"
+  },
+  "extensions/custom-avatar/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "6c131bf56f6d405ae1c25fbb270a4e43",
+    "semantic_hash": "6c131bf56f6d405ae1c25fbb270a4e43"
+  },
+  "extensions/custom-branding/assets/custom-branding.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "af8501135e4dc64a1a7cd7d9080be43b",
+    "semantic_hash": "af8501135e4dc64a1a7cd7d9080be43b"
+  },
+  "extensions/custom-branding/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "6516f1eb1310a796b1a1e31e398bc995",
+    "semantic_hash": "6516f1eb1310a796b1a1e31e398bc995"
+  },
+  "extensions/custom-branding/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "3b3077fa9f095fc86083a1ccb967d558",
+    "semantic_hash": "3b3077fa9f095fc86083a1ccb967d558"
+  },
+  "extensions/desktop-companion/assets/companion-adapter.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "cf5d691065ba49080a2e302aac8e8262",
+    "semantic_hash": "cf5d691065ba49080a2e302aac8e8262"
+  },
+  "extensions/desktop-companion/extension.json": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "5c9bc58eff4bf0e51e8f7337b22cd4d1",
+    "semantic_hash": ""
+  },
+  "extensions/desktop-companion/manifest.json": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "02894a2315df43ec34c81df181d379f2",
+    "semantic_hash": ""
+  },
+  "extensions/desktop-companion/pets/courier/pet.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "8dec764a1f453a8c09072d5eae94c87a",
+    "semantic_hash": "8dec764a1f453a8c09072d5eae94c87a"
+  },
+  "extensions/desktop-companion/pets/keeper/pet.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "b9054046867d686772ccb9c574e81178",
+    "semantic_hash": "b9054046867d686772ccb9c574e81178"
+  },
+  "extensions/desktop-companion/pets/shiba/pet.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9ae7047bacf41f2308f40f97f0d54aa5",
+    "semantic_hash": "9ae7047bacf41f2308f40f97f0d54aa5"
+  },
+  "extensions/e-ink-skin/assets/e-ink-skin.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "83ecd35a5cb7701e51954f04e2d68eb2",
+    "semantic_hash": "83ecd35a5cb7701e51954f04e2d68eb2"
+  },
+  "extensions/e-ink-skin/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "f75b55c7303908077d74805dcb7fee71",
+    "semantic_hash": "f75b55c7303908077d74805dcb7fee71"
+  },
+  "extensions/e-ink-skin/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "57dcfc5fcc3f2c5c91fcb1d9730526e4",
+    "semantic_hash": "57dcfc5fcc3f2c5c91fcb1d9730526e4"
+  },
+  "extensions/external-app-tab/assets/external-app-tab.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2daf76c939ef37e08c140da01e138c47",
+    "semantic_hash": "2daf76c939ef37e08c140da01e138c47"
+  },
+  "extensions/external-app-tab/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "59dac934f2344787961916761f86148a",
+    "semantic_hash": "59dac934f2344787961916761f86148a"
+  },
+  "extensions/external-app-tab/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "133670b5eac8e33b8676061fbcc8c0c3",
+    "semantic_hash": "133670b5eac8e33b8676061fbcc8c0c3"
+  },
+  "extensions/mcp-tool-shortcuts/assets/mcp-tool-shortcuts.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "67ab5fd0088c9899b664979e0297ef8b",
+    "semantic_hash": "67ab5fd0088c9899b664979e0297ef8b"
+  },
+  "extensions/mcp-tool-shortcuts/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "b86697ace4a68c956310c9c2362ff41a",
+    "semantic_hash": "b86697ace4a68c956310c9c2362ff41a"
+  },
+  "extensions/mcp-tool-shortcuts/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "96bff93c81a433aff9283b830472461c",
+    "semantic_hash": "96bff93c81a433aff9283b830472461c"
+  },
+  "extensions/message-pins/assets/message-pins.js": {
+    "mtime": 1785720094.7188442,
+    "ast_hash": "23a90e9382090afabf4336201cc8f4cf",
+    "semantic_hash": ""
+  },
+  "extensions/message-pins/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "c2d3faa51c2caebf7c35501d2ce4dd74",
+    "semantic_hash": "c2d3faa51c2caebf7c35501d2ce4dd74"
+  },
+  "extensions/message-pins/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9dd7d66eca447c709b7f1df47fff0678",
+    "semantic_hash": "9dd7d66eca447c709b7f1df47fff0678"
+  },
+  "extensions/mobile-conversations/assets/mobile-conversations.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "e435b3479567475aa96171c5d20cb45d",
+    "semantic_hash": "e435b3479567475aa96171c5d20cb45d"
+  },
+  "extensions/mobile-conversations/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "a30f9973e133864ce510641192e24065",
+    "semantic_hash": "a30f9973e133864ce510641192e24065"
+  },
+  "extensions/mobile-conversations/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "eebdf22b702b5aea2acb2c83a3c392fb",
+    "semantic_hash": "eebdf22b702b5aea2acb2c83a3c392fb"
+  },
+  "extensions/mobile-haptics/assets/mobile-haptics.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2ec087fa56bc3125da5c9c4a6932b915",
+    "semantic_hash": "2ec087fa56bc3125da5c9c4a6932b915"
+  },
+  "extensions/mobile-haptics/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "85b18fc08ac1dd385b7e685a2867e127",
+    "semantic_hash": "85b18fc08ac1dd385b7e685a2867e127"
+  },
+  "extensions/mobile-haptics/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "c2e4ae24735325e1da27fb8b26a6682b",
+    "semantic_hash": "c2e4ae24735325e1da27fb8b26a6682b"
+  },
+  "extensions/model-favorites/assets/model-favorites.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "4aeaceb2a7f1fd81348719a52ae56d46",
+    "semantic_hash": "4aeaceb2a7f1fd81348719a52ae56d46"
+  },
+  "extensions/model-favorites/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "e1c7de78264fb221ceea53d02f6b43ff",
+    "semantic_hash": "e1c7de78264fb221ceea53d02f6b43ff"
+  },
+  "extensions/model-favorites/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "9e06b85348785f99cc33fd2d0c137d46",
+    "semantic_hash": "9e06b85348785f99cc33fd2d0c137d46"
+  },
+  "extensions/session-export-pdf/assets/session-export-pdf.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "b8b3e0d4101e8a76c33be32dab4095b3",
+    "semantic_hash": "b8b3e0d4101e8a76c33be32dab4095b3"
+  },
+  "extensions/session-export-pdf/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "ef6ad7f45d53d9caa3c75e80f4f8a560",
+    "semantic_hash": "ef6ad7f45d53d9caa3c75e80f4f8a560"
+  },
+  "extensions/session-export-pdf/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "53fd3035defd8edd81ec35603e0e59bf",
+    "semantic_hash": "53fd3035defd8edd81ec35603e0e59bf"
+  },
+  "extensions/skin-pack/assets/skin-pack.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "15a310080a15a79ab26bfe4f89bc6fb4",
+    "semantic_hash": "15a310080a15a79ab26bfe4f89bc6fb4"
+  },
+  "extensions/skin-pack/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "6cac58d28e8879e167b46cbec1d9e62e",
+    "semantic_hash": "6cac58d28e8879e167b46cbec1d9e62e"
+  },
+  "extensions/skin-pack/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "8f5ca1a535e669a3a2bda2420fed8b14",
+    "semantic_hash": "8f5ca1a535e669a3a2bda2420fed8b14"
+  },
+  "extensions/theme-creator/assets/theme-creator.js": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2970d38ff7f5dac33f94d1287dc3376b",
+    "semantic_hash": "2970d38ff7f5dac33f94d1287dc3376b"
+  },
+  "extensions/theme-creator/extension.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "fcd3329291842e0a301db88eb3f851df",
+    "semantic_hash": "fcd3329291842e0a301db88eb3f851df"
+  },
+  "extensions/theme-creator/manifest.json": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "e5c8ebcd20776da9571a7a75b27d4f3b",
+    "semantic_hash": "e5c8ebcd20776da9571a7a75b27d4f3b"
+  },
+  "scripts/extension-registry-lib.mjs": {
+    "mtime": 1785720094.7188442,
+    "ast_hash": "8ad79e64802b379f79cd2d09bbace7f1",
+    "semantic_hash": ""
+  },
+  "scripts/generate-registry.mjs": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "be011661b5a8d15c63c57136e7d0b0c3",
+    "semantic_hash": "be011661b5a8d15c63c57136e7d0b0c3"
+  },
+  "scripts/scan-extension-safety.mjs": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2ba98307f9ebac04d18ecb436bedaed6",
+    "semantic_hash": "2ba98307f9ebac04d18ecb436bedaed6"
+  },
+  "scripts/test-extension-validator.mjs": {
+    "mtime": 1785720094.7188442,
+    "ast_hash": "ce049f4a787fa02c95e43c6fcbda8aba",
+    "semantic_hash": ""
+  },
+  "scripts/validate-desktop-companion.mjs": {
+    "mtime": 1785720094.7188442,
+    "ast_hash": "2c8862f17a998eb700b6ae48edb1929f",
+    "semantic_hash": ""
+  },
+  "scripts/validate-extensions.mjs": {
+    "mtime": 1785720094.7188442,
+    "ast_hash": "9142f1c1535d3a997028b816e38a8ea6",
+    "semantic_hash": ""
+  },
+  ".github/workflows/extensions.yml": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "4f445fe608bc277ac66874745b305149",
+    "semantic_hash": ""
+  },
+  "CONTRIBUTING.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "792a5737142386e7a9ab22c75aea1e3b",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "73a9089f3e26eca42eed3f31b68eefd5",
+    "semantic_hash": ""
+  },
+  "VISION.md": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "3c059c738aaecd43a7a612bd8d0040a4",
+    "semantic_hash": ""
+  },
+  "docs/extension-entry.md": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "ab994518f0f43637fc29d11eea77a853",
+    "semantic_hash": ""
+  },
+  "docs/rfcs/0001-extension-json-schema.md": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "0da913888e93382563ee53d36762a611",
+    "semantic_hash": ""
+  },
+  "examples/loopback-sidecar/README.md": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "0080a594fb9ca47b9fad701334bec95e",
+    "semantic_hash": ""
+  },
+  "examples/manifest-bundle/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "576d84fe24fe8689545b89a300ef95fb",
+    "semantic_hash": ""
+  },
+  "extensions/README.md": {
+    "mtime": 1785722260.9177444,
+    "ast_hash": "c4db67d6edc1504d254eb1a0dd1a8db1",
+    "semantic_hash": ""
+  },
+  "extensions/assistant-avatar/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "a789a83ea5661fdd64fcc2b769d594e7",
+    "semantic_hash": ""
+  },
+  "extensions/custom-avatar/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "fd0046aeaf25c7532eab4c7203e79aea",
+    "semantic_hash": ""
+  },
+  "extensions/custom-branding/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "967e2f85aaadfbe6e5a3c884d5e96a3d",
+    "semantic_hash": ""
+  },
+  "extensions/desktop-companion/README.md": {
+    "mtime": 1785720094.7148442,
+    "ast_hash": "29902c3c331e2833292acae91fed9a5f",
+    "semantic_hash": ""
+  },
+  "extensions/e-ink-skin/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "c4b9111574b28bec63c93980d390d86e",
+    "semantic_hash": ""
+  },
+  "extensions/external-app-tab/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2e4ab9c123bbc73a1d14cb82ef4b541f",
+    "semantic_hash": ""
+  },
+  "extensions/mcp-tool-shortcuts/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "92235be5de84c08424223732ea0f9e5d",
+    "semantic_hash": ""
+  },
+  "extensions/message-pins/README.md": {
+    "mtime": 1785720094.7188442,
+    "ast_hash": "dffbd463aa986a81fc7c4b94fb92a01c",
+    "semantic_hash": ""
+  },
+  "extensions/mobile-conversations/README.md": {
+    "mtime": 1785720094.7188442,
+    "ast_hash": "983de9e991dfd8de517929127b30915b",
+    "semantic_hash": ""
+  },
+  "extensions/mobile-haptics/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "ac9c36e024d08e9205f9a58edfa0483a",
+    "semantic_hash": ""
+  },
+  "extensions/model-favorites/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "99922bb00d81e77966d8473d8f2f760a",
+    "semantic_hash": ""
+  },
+  "extensions/session-export-pdf/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "1dd7995968c07588be8b54fac1abee00",
+    "semantic_hash": ""
+  },
+  "extensions/skin-pack/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "397e6722c3e4b0a2c1e01d466d8ec5db",
+    "semantic_hash": ""
+  },
+  "extensions/theme-creator/README.md": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "5685c0d84fa71cffa1017040059bb24a",
+    "semantic_hash": ""
+  },
+  "extensions/desktop-companion/pets/courier/spritesheet.webp": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "09b0deb2e7e9b898ed5116f174502825",
+    "semantic_hash": ""
+  },
+  "extensions/desktop-companion/pets/keeper/spritesheet.webp": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "89762656cc32722261f1796bd269d1be",
+    "semantic_hash": ""
+  },
+  "extensions/desktop-companion/pets/shiba/spritesheet.webp": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "2d68e70e91b65c9ce17d3addd6abc47c",
+    "semantic_hash": ""
+  },
+  "extensions/theme-creator/screenshots/theme-creator-panel.png": {
+    "mtime": 1785416723.108352,
+    "ast_hash": "1060695cf9cb701a7edc3cf8d418acc5",
+    "semantic_hash": ""
+  },
+  "extensions/project-allocator/assets/project-allocator.js": {
+    "mtime": 1785722019.7000885,
+    "ast_hash": "7e124cc4633f2a6e709a81a891cb4c9e",
+    "semantic_hash": ""
+  },
+  "extensions/project-allocator/extension.json": {
+    "mtime": 1785722085.1606176,
+    "ast_hash": "ef69c92a301c011b50d8cc42d941dc9c",
+    "semantic_hash": ""
+  },
+  "extensions/project-allocator/manifest.json": {
+    "mtime": 1785722085.1366174,
+    "ast_hash": "fbdff6ca0e4560ca32fb58097275269f",
+    "semantic_hash": ""
+  },
+  "extensions/project-allocator/README.md": {
+    "mtime": 1785722260.9297445,
+    "ast_hash": "077d728cb776f7a769c31e78b3a299b7",
+    "semantic_hash": ""
+  }
+}
