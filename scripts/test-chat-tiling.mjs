@@ -182,8 +182,8 @@ async function main() {
     assert(!tileBInner.textContent.includes('a-msg') && !tileBInner.textContent.includes('a-resolved'), 'stale A rejection did not clobber B tile content');
   }
 
-  // ═══════ S4: Full-grid navigation is rejected (cancel:true) ═══════
-  section('S4: Full-grid navigation is rejected (cancel:true)');
+  // ═══════ S4: Full-grid navigation replaces focused tile ═══════
+  section('S4: Full-grid navigation replaces focused tile');
   {
     const h = createFreshDom();
     setSession(h, 'sid-A', 'Session A', ['a']);
@@ -193,10 +193,17 @@ async function main() {
     setSession(h, 'sid-B', 'Session B', ['b']);
     h.handlerRegistration('sid-B', h.S.session, { loaded: true });
     await settle();
+    // C replaces the focused tile instead of being cancelled
     const r = h.handlerRegistration('sid-C', null, { preload: true });
-    assert(r && r.cancel === true, 'full-grid preload returns {cancel:true}');
+    assert(!(r && r.cancel === true), 'full-grid preload replaces focused tile (no cancel)');
+    setSession(h, 'sid-C', 'Session C', ['c']);
+    h.handlerRegistration('sid-C', h.S.session, { loaded: true });
+    await settle();
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    assert(tiles.length === 2, 'both A and B tiles still exist');
+    assert(tiles.length === 2, 'still 2 tiles after replace');
+    // Focused tile now shows session C
+    const focused = h.document.querySelector('.ext-tile--focused');
+    assert(focused.querySelector('.ext-tile-title').textContent === 'Session C', 'focused tile shows C');
   }
 
   // ═══════ S5: Failed cancellation preserves tile ═══════
@@ -246,9 +253,12 @@ async function main() {
     // C must be able to reuse the released slot ({}), not get {cancel:true}.
     const rc = h.handlerRegistration('sid-C', null, { preload: true });
     assert(!(rc && rc.cancel === true), 'C reuses the slot released by timed-out B (not cancel)');
-    // Now the grid is full again (A + C): D is rejected.
+    setSession(h, 'sid-C', 'Session C', ['c']);
+    h.handlerRegistration('sid-C', h.S.session, { loaded: true });
+    await settle();
+    // Now the grid is full again (A + C): D replaces focused tile.
     const rd = h.handlerRegistration('sid-D', null, { preload: true });
-    assert(rd && rd.cancel === true, 'D rejected when grid full again');
+    assert(!(rd && rd.cancel === true), 'D replaces focused tile when grid full again');
   }
 
   // ═══════ S7: Hide/close restores focused session with its draft ═══════

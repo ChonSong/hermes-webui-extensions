@@ -418,7 +418,14 @@ function initCapture(){
       const existing=bySid(sid);
       if(existing){focusTile(existing.id);return {}}
       let t=T.tiles.find(t=>!t.sid&&!t._pending);
-      if(!t){return {cancel:true}}
+      if(!t){
+        t=at();
+        if(t&&t.sid===sid){return {}}
+        if(t&&t._pending){
+          clearTimeout(t._pendingTimer);
+          t._pending=false;t._pendingSid=null;t._pendingTimer=null;
+        }
+      }
       if(T.tiles.some(x=>x.sid===sid))return {};
       // Transfer live ownership BEFORE Core mutates S: snapshot the outgoing
       // tile (composer + transcript) and move the live #msgInner to the
