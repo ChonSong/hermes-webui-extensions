@@ -520,7 +520,7 @@ function tbActive(){
 }
 
 function tbInit(){
-  const topbar=document.querySelector('#topbar');
+  const topbar=document.querySelector('.app-titlebar')||document.querySelector('#topbar');
   if(!topbar)return;
   T.tb=createToolbar();
   const insertBefore=topbar.querySelector('#themeBtn')||topbar.querySelector('#settingsBtn')||topbar.lastElementChild;
