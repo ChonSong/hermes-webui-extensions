@@ -419,16 +419,7 @@ function initCapture(){
       const existing=bySid(sid);
       if(existing){focusTile(existing.id);return {}}
       let t=T.tiles.find(t=>!t.sid&&!t._pending);
-      if(!t){
-        // All tiles occupied — replace the focused tile atomically so the
-        // new session renders in the focused slot instead of being rejected.
-        t=at();
-        if(t&&t.sid===sid){return {}}
-        if(t&&t._pending){
-          clearTimeout(t._pendingTimer);
-          t._pending=false;t._pendingSid=null;t._pendingTimer=null;
-        }
-      }
+      if(!t){return {cancel:true}}
       if(T.tiles.some(x=>x.sid===sid))return {};
       // Transfer live ownership BEFORE Core mutates S: snapshot the outgoing
       // tile (composer + transcript) and move the live #msgInner to the
