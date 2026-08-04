@@ -157,6 +157,9 @@ function focusTile(id,opts){
       updateHeader(tile);
     });
   } else {
+    // Empty tile — clear sidebar selection so no session is highlighted
+    const s = getS();
+    if (s) { s.session = null; s.messages = []; s.busy = false; }
     renderSnapshot(tile);
     updateHeader(tile);
   }
