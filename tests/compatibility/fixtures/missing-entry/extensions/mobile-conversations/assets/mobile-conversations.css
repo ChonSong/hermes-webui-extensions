@@ -1,0 +1,2 @@
+/* Keep the resource-only fixture harmless and observable as a loaded asset. */
+.messages-shell { display: block; min-height: 80px; }
