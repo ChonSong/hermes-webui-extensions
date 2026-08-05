@@ -564,7 +564,26 @@ class BrowserBoundaryTests(unittest.TestCase):
                 Path(__file__).resolve().parent / "fixtures" / fixture_name
             ) as server:
                 with tempfile.TemporaryDirectory(prefix="compatibility-late-error-") as evidence:
-                    with self.assertRaises(browser_smoke.CompatibilityFailure):
+                    # Spy on every health checkpoint so the assertion below can
+                    # prove the FINAL re-check is load-bearing: the first (boot)
+                    # check must be clean and a LATER check must be the one that
+                    # raises. Without this a fixture whose error fires before the
+                    # boot check would let the test pass even if the final
+                    # re-check were deleted.
+                    real_assert = browser_smoke._assert_browser_health
+                    health_calls = []
+
+                    def _spy(**kwargs):
+                        try:
+                            real_assert(**kwargs)
+                        except browser_smoke.CompatibilityFailure:
+                            health_calls.append("raised")
+                            raise
+                        health_calls.append("clean")
+
+                    with mock.patch.object(
+                        browser_smoke, "_assert_browser_health", _spy
+                    ), self.assertRaises(browser_smoke.CompatibilityFailure):
                         browser_smoke._run_browser_case(
                             base_url=server.base_url,
                             evidence_dir=Path(evidence),
@@ -573,6 +592,12 @@ class BrowserBoundaryTests(unittest.TestCase):
                             expected_entry=spec,
                             expect_entry=expect_entry,
                         )
+                    # At least one health check ran clean before the one that
+                    # raised — i.e. a re-check after the initial boot check is
+                    # what catches the late error, not the boot check itself.
+                    self.assertIn("clean", health_calls)
+                    self.assertEqual(health_calls[-1], "raised")
+                    self.assertGreaterEqual(len(health_calls), 2)
 
 
 class ExitClassificationTests(unittest.TestCase):
