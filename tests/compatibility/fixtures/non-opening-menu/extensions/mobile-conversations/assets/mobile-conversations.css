@@ -1,0 +1,7 @@
+.messages-shell { display: block; min-height: 80px; }
+#mobileConversationsBtn {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  visibility: visible;
+}

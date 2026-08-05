@@ -20,11 +20,18 @@ provider/model.
 
 The browser context blocks service workers. Before navigation, the harness
 allows HTTP(S) only to `localhost`, `127.0.0.1`, and `[::1]`; all other HTTP(S)
-requests are aborted and recorded. The fixed CDN URLs from the pinned Core
-index are recorded as a known baseline but are also aborted. Any other
-off-origin HTTP(S) attempt, or any non-loopback WebSocket (closed through
-Playwright's WebSocket routing), fails the compatibility case. This is a
-no-egress smoke, not an assertion that the CDN is reachable.
+requests are aborted and recorded. Each fixed CDN URL from the pinned Core
+index can spend the known-baseline allowance only for its exact URL, `GET`
+method, expected Playwright resource type, and bounded occurrence count. A
+duplicate request, another method, another resource type, or another URL is
+recorded as unexpected. Console errors are associated with
+`message.location.url`; a URL-less or non-exact CDN error is therefore not
+baseline noise. Any unexpected off-origin HTTP(S) attempt, or any non-loopback
+WebSocket, fails the compatibility case. For WebSockets the Playwright 1.62
+route callback records the URL and returns without `connect_to_server()` or
+synchronous `close()`: Playwright mocks the page-side socket without dialing
+the external server and without blocking Chromium. This is a no-egress smoke,
+not an assertion that the CDN is reachable.
 
 At a 390x844 mobile viewport, the positive case requires all of the following:
 
@@ -52,11 +59,10 @@ Core remains the real host that serves the app shell and injected assets.
 
 ## Local run
 
-Install the same minimal Core browser-smoke dependency (`pyyaml`) and the
-test-only browser dependency in an isolated environment, then install Chromium:
+Install the hash-locked Core/browser-smoke dependencies in an isolated
+environment, then install Chromium:
 
 ```bash
-python3.12 -m pip install "pyyaml>=6.0"
 python3.12 -m pip install --require-hashes -r tests/compatibility/requirements.txt
 python3.12 -m playwright install --with-deps chromium
 ```
@@ -83,8 +89,9 @@ record per case, and screenshots when the browser reaches the relevant page.
 The `browser-compatibility` job checks out `nesquena/hermes-webui` independently
 at the pinned, maintainer-verified Core SHA in
 `.github/workflows/extensions.yml` (`320789ae596a3963d726d90f6c7f3bc86f7f2d6d`),
-installs only Core's browser-smoke dependency (`pyyaml>=6.0`) plus the
-hash-locked test-only Playwright dependency with `pip --require-hashes`, and
+installs the complete hash-locked Core/browser-smoke and Playwright dependency
+surface from `tests/compatibility/requirements.txt` with
+`pip --require-hashes`, and
 uploads `compatibility-evidence/**` with `if: always()`. The new job's
 checkout, setup-python, and upload-artifact actions are pinned to full commit
 SHAs (with the corresponding `v5` tag noted beside each pin). It runs on pull

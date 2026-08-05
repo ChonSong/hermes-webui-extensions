@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import functools
+import http.server
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,9 +20,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import browser_smoke  # noqa: E402
 
 
+_CHROMIUM_CHECK: bool | None = None
+_CHROMIUM_ERROR = ""
+
+
 class _FakeRoute:
-    def __init__(self, url: str) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        resource_type: str = "script",
+    ) -> None:
         self.request = SimpleNamespace(url=url)
+        self.request.method = method
+        self.request.resource_type = resource_type
         self.continued = 0
         self.aborted = 0
 
@@ -53,6 +68,68 @@ class _FakeContext:
 
     def route_web_socket(self, _pattern: str, handler) -> None:
         self.websocket_handler = handler
+
+
+class _RunningProcess:
+    def poll(self) -> None:
+        return None
+
+
+class _QuietFixtureHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, _format: str, *_args: object) -> None:
+        return
+
+
+class _FixtureServer:
+    def __init__(self, root: Path) -> None:
+        handler = functools.partial(_QuietFixtureHandler, directory=str(root))
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.thread = threading.Thread(
+            target=self.server.serve_forever,
+            name="compatibility-fixture-server",
+            daemon=True,
+        )
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.server.server_port}"
+
+    def __enter__(self) -> "_FixtureServer":
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+
+
+def _chromium_available(test_case: unittest.TestCase) -> None:
+    global _CHROMIUM_CHECK, _CHROMIUM_ERROR
+    if _CHROMIUM_CHECK is True:
+        return
+    if _CHROMIUM_CHECK is False:
+        test_case.skipTest(_CHROMIUM_ERROR)
+    if not importlib.util.find_spec("playwright"):
+        _CHROMIUM_CHECK = False
+        _CHROMIUM_ERROR = "Playwright is installed only in the browser-smoke environment"
+        test_case.skipTest("Playwright is installed only in the browser-smoke environment")
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            browser.close()
+            _CHROMIUM_CHECK = True
+    except Exception as exc:  # pragma: no cover - host-dependent
+        _CHROMIUM_CHECK = False
+        _CHROMIUM_ERROR = f"Chromium is unavailable: {exc}"
+        test_case.skipTest(f"Chromium is unavailable: {exc}")
+
+
+def _reference_resources() -> tuple[str, ...]:
+    spec = browser_smoke.REFERENCE_ALLOWLIST["mobile-conversations"]
+    return (spec.script_fragment, spec.stylesheet_fragment)
 
 
 class EnvironmentIsolationTests(unittest.TestCase):
@@ -124,6 +201,44 @@ class EnvironmentIsolationTests(unittest.TestCase):
                     f"{key} escaped state root",
                 )
 
+    def test_health_probe_ignores_parent_proxy_environment(self) -> None:
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - stdlib callback name
+                if self.path == "/health":
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"ok")
+                else:
+                    self.send_error(404)
+
+            def log_message(self, _format: str, *_args: object) -> None:
+                return
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "HTTP_PROXY": "http://127.0.0.1:1",
+                    "HTTPS_PROXY": "http://127.0.0.1:1",
+                    "ALL_PROXY": "http://127.0.0.1:1",
+                    "NO_PROXY": "",
+                },
+                clear=False,
+            ):
+                healthy = browser_smoke._wait_for_health(
+                    f"http://127.0.0.1:{server.server_port}",
+                    _RunningProcess(),
+                    timeout=2,
+                )
+            self.assertTrue(healthy)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
 
 class BrowserBoundaryTests(unittest.TestCase):
     def test_http_and_websocket_guards_allow_only_loopback(self) -> None:
@@ -161,8 +276,64 @@ class BrowserBoundaryTests(unittest.TestCase):
         context.websocket_handler(unexpected_ws)
         self.assertEqual(loopback_ws.connected, 1)
         self.assertEqual(ipv6_ws.connected, 1)
-        self.assertEqual(unexpected_ws.closed, (1008, "off-origin WebSocket blocked"))
+        self.assertIsNone(unexpected_ws.closed)
         self.assertEqual(len(events["unexpected_websockets"]), 1)
+
+    def test_baseline_requires_exact_method_type_and_bounded_occurrence(self) -> None:
+        context = _FakeContext()
+        events = browser_smoke._install_network_guards(context)
+        baseline_url = (
+            "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"
+        )
+        context.http_handler(_FakeRoute(baseline_url, resource_type="script"))
+        context.http_handler(_FakeRoute(baseline_url, resource_type="script"))
+        context.http_handler(_FakeRoute(baseline_url, method="POST", resource_type="fetch"))
+        context.http_handler(_FakeRoute(baseline_url, resource_type="stylesheet"))
+
+        self.assertEqual(
+            [event["classification"] for event in events["blocked_http"]],
+            ["core-baseline", "unexpected", "unexpected", "unexpected"],
+        )
+        self.assertEqual(events["blocked_http"][0]["occurrence"], 1)
+        self.assertEqual(events["blocked_http"][1]["occurrence"], 2)
+        self.assertEqual(
+            events["unexpected_http"][0]["method"],
+            "GET",
+        )
+        self.assertEqual(
+            events["unexpected_http"][1]["method"],
+            "POST",
+        )
+        self.assertEqual(
+            events["unexpected_http"][2]["resource_type"],
+            "stylesheet",
+        )
+
+    def test_console_error_is_associated_by_location_url(self) -> None:
+        with self.assertRaises(browser_smoke.CompatibilityFailure):
+            browser_smoke._assert_browser_health(
+                case_name="baseline-location-fixture",
+                console_errors=[
+                    {
+                        "text": "Failed to load resource: net::ERR_FAILED",
+                        "url": "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js?unexpected=1",
+                    }
+                ],
+                page_errors=[],
+                extension_fragments=(),
+                network_events={
+                    "blocked_http": [
+                        {
+                            "url": "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js",
+                            "classification": "core-baseline",
+                            "method": "GET",
+                            "resource_type": "script",
+                        }
+                    ],
+                    "unexpected_http": [],
+                    "unexpected_websockets": [],
+                },
+            )
 
     def test_unexpected_egress_is_a_compatibility_failure(self) -> None:
         with self.assertRaises(browser_smoke.CompatibilityFailure):
@@ -180,13 +351,19 @@ class BrowserBoundaryTests(unittest.TestCase):
             )
 
     def test_known_core_abort_noise_is_not_an_extension_pass(self) -> None:
-        # The pinned Core emits one URL-less ERR_FAILED console line for each
-        # CDN request aborted by the browser route and one deterministic
-        # service-worker-disabled pageerror.  Those exact baseline signals are
-        # ignored, while an additional runtime signal remains a failure.
+        # The pinned Core emits one ERR_FAILED console line for each CDN
+        # request aborted by the browser route and one deterministic
+        # service-worker-disabled pageerror.  A console location matching the
+        # exact baseline URL is ignored, while an additional runtime signal
+        # remains a failure.
         browser_smoke._assert_browser_health(
             case_name="baseline-noise",
-            console_errors=["Failed to load resource: net::ERR_FAILED"],
+            console_errors=[
+                {
+                    "text": "Failed to load resource: net::ERR_FAILED",
+                    "url": "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js",
+                }
+            ],
             page_errors=[
                 "Failed to read the 'serviceWorker' property from 'Navigator': "
                 "Service worker is disabled because the context is sandboxed "
@@ -205,40 +382,68 @@ class BrowserBoundaryTests(unittest.TestCase):
             },
         )
 
-    def test_post_check_catches_a_late_pageerror(self) -> None:
-        # This models the observable lifecycle: the early check is green,
-        # then the page reports a runtime error before the success return's
-        # adjacent post-check.
-        page_errors: list[str] = []
-        network_events = {"unexpected_http": [], "unexpected_websockets": []}
-        browser_smoke._assert_browser_health(
-            case_name="late-error-fixture",
-            console_errors=[],
-            page_errors=page_errors,
-            extension_fragments=(),
-            network_events=network_events,
-        )
-        page_errors.append("synthetic late runtime error")
-        with self.assertRaises(browser_smoke.CompatibilityFailure):
-            browser_smoke._assert_browser_health(
-                case_name="late-error-fixture",
-                console_errors=[],
-                page_errors=page_errors,
-                extension_fragments=(),
-                network_events=network_events,
-            )
+    def _run_main_against_fixture(self, fixture_name: str) -> tuple[int, dict]:
+        _chromium_available(self)
+        fixture_root = Path(__file__).resolve().parent / "fixtures" / fixture_name
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            extension_root = root / "extensions"
+            extension_root.mkdir()
+            evidence = root / "evidence"
+            with _FixtureServer(fixture_root) as server, mock.patch.object(
+                browser_smoke,
+                "_start_server",
+                return_value=(None, None, server.base_url, server.server.server_port),
+            ), mock.patch.object(
+                browser_smoke,
+                "_prepare_normal_bundle",
+                return_value="manifest.json",
+            ), mock.patch.object(
+                browser_smoke,
+                "ENTRY_TIMEOUT_MS",
+                750,
+            ), mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "browser_smoke.py",
+                    "--core-dir",
+                    str(root),
+                    "--extension-root",
+                    str(extension_root),
+                    "--evidence-dir",
+                    str(evidence),
+                ],
+            ):
+                code = browser_smoke.main()
+            result = json.loads((evidence / "compatibility-results.json").read_text())
+            return code, result
 
     @unittest.skipUnless(
         importlib.util.find_spec("playwright"),
         "Playwright is installed only in the browser-smoke environment",
     )
+    def test_missing_entry_timeout_is_compatibility_exit_one(self) -> None:
+        code, result = self._run_main_against_fixture("missing-entry")
+        self.assertEqual(code, 1)
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("entry visibility", result["error"])
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("playwright"),
+        "Playwright is installed only in the browser-smoke environment",
+    )
+    def test_non_opening_menu_timeout_is_compatibility_exit_one(self) -> None:
+        code, result = self._run_main_against_fixture("non-opening-menu")
+        self.assertEqual(code, 1)
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("menu visibility", result["error"])
+
     def test_real_off_origin_fixture_is_blocked_and_fails(self) -> None:
         """Exercise the guard against a real fixture request in Chromium."""
 
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError:  # pragma: no cover - covered by skipUnless
-            self.skipTest("Playwright is unavailable")
+        _chromium_available(self)
+        from playwright.sync_api import sync_playwright
         fixture = (
             Path(__file__).resolve().parent / "fixtures" / "off-origin-egress.js"
         )
@@ -264,6 +469,110 @@ class BrowserBoundaryTests(unittest.TestCase):
             self.assertEqual(len(events["unexpected_http"]), 1)
             context.close()
             browser.close()
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("playwright"),
+        "Playwright is installed only in the browser-smoke environment",
+    )
+    def test_real_core_baseline_post_is_unexpected_and_fails(self) -> None:
+        """A POST to an exact Core CDN URL is not a baseline request."""
+
+        _chromium_available(self)
+        from playwright.sync_api import sync_playwright
+
+        fixture = Path(__file__).resolve().parent / "fixtures" / "core-baseline-post.js"
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(service_workers="block")
+            events = browser_smoke._install_network_guards(context)
+            page = context.new_page()
+            page.goto("data:text/html,<body>fixture</body>")
+            page.add_script_tag(path=str(fixture))
+            page.wait_for_timeout(500)
+            with self.assertRaises(browser_smoke.CompatibilityFailure):
+                browser_smoke._assert_browser_health(
+                    case_name="core-baseline-post-fixture",
+                    console_errors=[],
+                    page_errors=[],
+                    extension_fragments=(),
+                    network_events=events,
+                )
+            self.assertTrue(events["unexpected_http"])
+            self.assertEqual(events["unexpected_http"][0]["method"], "POST")
+            context.close()
+            browser.close()
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("playwright"),
+        "Playwright is installed only in the browser-smoke environment",
+    )
+    def test_real_websocket_fixture_is_mocked_without_external_connect_or_hang(self) -> None:
+        """A routed off-origin socket opens as a mocked socket and never dials out."""
+
+        _chromium_available(self)
+        from playwright.sync_api import sync_playwright
+
+        fixture = Path(__file__).resolve().parent / "fixtures" / "off-origin-websocket.js"
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(service_workers="block")
+            events = browser_smoke._install_network_guards(context)
+            page = context.new_page()
+            page.goto("data:text/html,<body>fixture</body>")
+            page.add_script_tag(path=str(fixture))
+            page.wait_for_function(
+                "() => window.__hermesCompatibilityWebSocketState === 'open'",
+                timeout=2_000,
+            )
+            self.assertEqual(len(events["unexpected_websockets"]), 1)
+            with self.assertRaises(browser_smoke.CompatibilityFailure):
+                browser_smoke._assert_browser_health(
+                    case_name="off-origin-websocket-fixture",
+                    console_errors=[],
+                    page_errors=[],
+                    extension_fragments=(),
+                    network_events=events,
+                )
+            context.close()
+            browser.close()
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("playwright"),
+        "Playwright is installed only in the browser-smoke environment",
+    )
+    def test_late_pageerror_fails_positive_and_negative_run_browser_cases(self) -> None:
+        """A late pageerror is caught on both browser-case success paths."""
+
+        _chromium_available(self)
+        spec = browser_smoke.REFERENCE_ALLOWLIST["mobile-conversations"]
+        cases = (
+            (
+                "late-pageerror-positive",
+                "late-pageerror-positive",
+                _reference_resources(),
+                True,
+            ),
+            (
+                "late-pageerror-negative",
+                "late-pageerror-negative",
+                ("/extensions/assets/resource-only.js", "/extensions/assets/resource-only.css"),
+                False,
+            ),
+        )
+        for case_name, fixture_name, resources, expect_entry in cases:
+            with self.subTest(case_name=case_name), _FixtureServer(
+                Path(__file__).resolve().parent / "fixtures" / fixture_name
+            ) as server:
+                with tempfile.TemporaryDirectory(prefix="compatibility-late-error-") as evidence:
+                    with self.assertRaises(browser_smoke.CompatibilityFailure):
+                        browser_smoke._run_browser_case(
+                            base_url=server.base_url,
+                            evidence_dir=Path(evidence),
+                            case_name=case_name,
+                            resource_fragments=resources,
+                            expected_entry=spec,
+                            expect_entry=expect_entry,
+                        )
 
 
 class ExitClassificationTests(unittest.TestCase):

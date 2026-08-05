@@ -55,22 +55,39 @@ NEGATIVE_ENTRY_TIMEOUT_MS = 4_000
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 # The pinned Core index intentionally references this fixed set of CDN resources.
-# They are still aborted by the browser route; listing their complete URLs only
-# keeps this known Core baseline distinct from an extension's unexpected
-# off-origin attempt.  A new Core off-origin URL must be reviewed and added
-# explicitly instead of broadening this to a host/domain allowlist.
-EXPECTED_CORE_OFF_ORIGIN_URLS = frozenset(
-    {
-        "https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css",
-        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css",
-        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css",
-        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js",
-        "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js",
-        "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js",
-        "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js",
-        "https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js",
-    }
-)
+# They are still aborted by the browser route; each entry records the only
+# method/resource type and bounded occurrence count that can spend the baseline
+# allowance.  A new Core off-origin URL must be reviewed and added explicitly
+# instead of broadening this to a host/domain allowlist.
+EXPECTED_CORE_BASELINE_REQUESTS: dict[str, tuple[str, int]] = {
+    "https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css": ("stylesheet", 1),
+    "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css": (
+        "stylesheet",
+        1,
+    ),
+    "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css": (
+        "stylesheet",
+        1,
+    ),
+    "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js": (
+        "script",
+        1,
+    ),
+    "https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js": (
+        "script",
+        1,
+    ),
+    "https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js": ("script", 1),
+    "https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js": (
+        "script",
+        1,
+    ),
+    "https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js": (
+        "script",
+        1,
+    ),
+}
+EXPECTED_CORE_OFF_ORIGIN_URLS = frozenset(EXPECTED_CORE_BASELINE_REQUESTS)
 
 
 @dataclass(frozen=True)
@@ -160,12 +177,15 @@ def _find_free_port() -> int:
 
 
 def _wait_for_health(base_url: str, proc: subprocess.Popen[str], timeout: int) -> bool:
+    # Do not let urllib consult proxy variables inherited by the harness
+    # process.  The health endpoint is explicitly loopback-only.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             return False
         try:
-            with urllib.request.urlopen(f"{base_url}/health", timeout=2) as response:
+            with opener.open(f"{base_url}/health", timeout=2) as response:
                 if response.status == 200:
                     return True
         except (OSError, urllib.error.URLError):
@@ -233,28 +253,23 @@ def _is_loopback_websocket_url(url: str) -> bool:
     return (host or "").lower() in LOOPBACK_HOSTS
 
 
-def _normalized_url(url: str) -> str:
-    try:
-        return urlsplit(url)._replace(fragment="").geturl()
-    except ValueError:
-        return url
-
-
-def _install_network_guards(context: Any) -> dict[str, list[dict[str, str]]]:
+def _install_network_guards(context: Any) -> dict[str, list[dict[str, Any]]]:
     """Install deny-by-default HTTP and WebSocket routing before navigation.
 
     Loopback HTTP(S) is continued so Core can serve the app.  All other
-    HTTP(S) requests are aborted and recorded.  The pinned Core's fixed CDN
-    URLs are recorded separately from unexpected off-origin attempts; neither
-    category is allowed to reach the network.
+    HTTP(S) requests are aborted and recorded.  A pinned Core CDN URL is
+    recorded separately from unexpected off-origin attempts only when its
+    exact method, resource type, and occurrence bound match; neither category
+    is allowed to reach the network.
     """
 
-    events: dict[str, list[dict[str, str]]] = {
+    events: dict[str, list[dict[str, Any]]] = {
         "blocked_http": [],
         "unexpected_http": [],
         "blocked_websockets": [],
         "unexpected_websockets": [],
     }
+    baseline_occurrences: dict[str, int] = {}
 
     def on_route(route: Any) -> None:
         request = getattr(route, "request", None)
@@ -271,12 +286,26 @@ def _install_network_guards(context: Any) -> dict[str, list[dict[str, str]]]:
             return
 
         safe_url = _safe_url(url)
-        classification = (
-            "core-baseline"
-            if _normalized_url(url) in EXPECTED_CORE_OFF_ORIGIN_URLS
-            else "unexpected"
-        )
-        event = {"url": safe_url, "classification": classification}
+        method = str(getattr(request, "method", "GET")).upper()
+        resource_type = str(getattr(request, "resource_type", ""))
+        expected = EXPECTED_CORE_BASELINE_REQUESTS.get(url)
+        occurrence = baseline_occurrences.get(url, 0)
+        classification = "unexpected"
+        if (
+            expected is not None
+            and method == "GET"
+            and resource_type == expected[0]
+            and occurrence < expected[1]
+        ):
+            classification = "core-baseline"
+            baseline_occurrences[url] = occurrence + 1
+        event = {
+            "url": safe_url,
+            "classification": classification,
+            "method": method,
+            "resource_type": resource_type,
+            "occurrence": occurrence + 1,
+        }
         events["blocked_http"].append(event)
         if classification == "unexpected":
             events["unexpected_http"].append(event)
@@ -298,7 +327,11 @@ def _install_network_guards(context: Any) -> dict[str, list[dict[str, str]]]:
         event = {"url": _safe_url(url), "classification": "unexpected"}
         events["blocked_websockets"].append(event)
         events["unexpected_websockets"].append(event)
-        websocket.close(code=1008, reason="off-origin WebSocket blocked")
+        # In Playwright 1.62 a sync ``WebSocketRoute.close`` waits on the
+        # route's protocol while this callback is still running.  Leaving the
+        # route unconnected creates a mocked socket (the page sees open) and
+        # never dials the external server, without blocking Chromium.
+        return
 
     route_web_socket("**/*", on_websocket)
     return events
@@ -307,33 +340,27 @@ def _install_network_guards(context: Any) -> dict[str, list[dict[str, str]]]:
 def _assert_browser_health(
     *,
     case_name: str,
-    console_errors: list[str],
+    console_errors: list[Any],
     page_errors: list[str],
     extension_fragments: tuple[str, ...],
-    network_events: dict[str, list[dict[str, str]]],
+    network_events: dict[str, list[dict[str, Any]]],
 ) -> None:
     """Assert runtime and browser-egress invariants at a particular checkpoint."""
 
-    baseline_abort_budget = sum(
-        1
-        for event in network_events.get("blocked_http", [])
-        if event.get("classification") == "core-baseline"
-    )
     meaningful_console_errors: list[str] = []
-    for text in console_errors:
-        # Chromium emits a URL-less ERR_FAILED console line when Playwright
-        # aborts a stylesheet/script request.  Spend one budget item only for
-        # the known Core baseline request; an extension resource still fails
-        # through its response/requestfailed assertion, and unexpected
-        # off-origin egress fails through the network invariant below.
-        if (
-            text.lower() == "failed to load resource: net::err_failed"
-            and baseline_abort_budget
-        ):
-            baseline_abort_budget -= 1
-            continue
-        if not _is_benign_core_console(text, extension_fragments):
-            meaningful_console_errors.append(text)
+    for entry in console_errors:
+        if isinstance(entry, dict):
+            text = str(entry.get("text", ""))
+            location_url = str(entry.get("url", ""))
+        else:
+            # Keep direct callers source-compatible, but a URL-less network
+            # error is intentionally not treated as known Core CDN noise.
+            text = str(entry)
+            location_url = ""
+        if not _is_benign_core_console(text, extension_fragments, location_url):
+            meaningful_console_errors.append(
+                f"{text} (location={_safe_url(location_url) if location_url else '<none>'})"
+            )
     meaningful_page_errors = [
         text for text in page_errors if not _is_benign_core_page_error(text)
     ]
@@ -473,11 +500,20 @@ def _start_server(
     raise SetupFailure(f"Core server did not become healthy{detail}")
 
 
-def _is_benign_core_console(text: str, extension_fragments: tuple[str, ...]) -> bool:
+def _is_benign_core_console(
+    text: str,
+    extension_fragments: tuple[str, ...],
+    location_url: str = "",
+) -> bool:
     """Ignore only known shell noise, never an error mentioning our assets."""
     lowered = text.lower()
     if any(fragment.lower() in lowered for fragment in extension_fragments):
         return False
+    if (
+        lowered == "failed to load resource: net::err_failed"
+        and location_url in EXPECTED_CORE_OFF_ORIGIN_URLS
+    ):
+        return True
     return any(
         marker in lowered
         for marker in (
@@ -486,7 +522,6 @@ def _is_benign_core_console(text: str, extension_fragments: tuple[str, ...]) -> 
             "serviceworker",
             "sw.js",
             "the server responded with a status of 404",
-            "cdn.jsdelivr.net",
         )
     )
 
@@ -530,10 +565,10 @@ def _run_browser_case(
 
     responses: list[dict[str, Any]] = []
     request_failures: list[str] = []
-    console_errors: list[str] = []
+    console_errors: list[dict[str, str]] = []
     page_errors: list[str] = []
     screenshot_path = evidence_dir / f"{case_name}.png"
-    network_events: dict[str, list[dict[str, str]]] = {
+    network_events: dict[str, list[dict[str, Any]]] = {
         "blocked_http": [],
         "unexpected_http": [],
         "blocked_websockets": [],
@@ -565,13 +600,32 @@ def _run_browser_case(
 
         page.on("response", on_response)
         page.on("requestfailed", on_request_failed)
-        page.on(
-            "console",
-            lambda message: console_errors.append(message.text)
-            if message.type == "error"
-            else None,
-        )
+        def on_console(message: Any) -> None:
+            if message.type != "error":
+                return
+            location = getattr(message, "location", {}) or {}
+            location_url = (
+                location.get("url", "")
+                if isinstance(location, dict)
+                else getattr(location, "url", "")
+            )
+            console_errors.append(
+                {
+                    "text": str(message.text),
+                    "url": str(location_url),
+                }
+            )
+
+        page.on("console", on_console)
         page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+        def wait_for_contract(stage: str, action: Any) -> Any:
+            try:
+                return action()
+            except PlaywrightTimeoutError as exc:
+                raise CompatibilityFailure(
+                    f"{case_name}: {stage} timed out"
+                ) from exc
 
         try:
             page.goto(f"{base_url}/", wait_until="domcontentloaded", timeout=30_000)
@@ -615,8 +669,11 @@ def _run_browser_case(
             # for that real Core host before evaluating either positive or
             # negative entry behavior; otherwise a fast timeout could mistake
             # an app that is still booting for a missing extension entry.
-            page.locator(".messages-shell").wait_for(
-                state="visible", timeout=ENTRY_TIMEOUT_MS
+            wait_for_contract(
+                "Core host visibility",
+                lambda: page.locator(".messages-shell").wait_for(
+                    state="visible", timeout=ENTRY_TIMEOUT_MS
+                ),
             )
 
             if not expect_entry:
@@ -659,7 +716,10 @@ def _run_browser_case(
                 )
 
             entry = page.locator(expected_entry.entry_selector)
-            entry.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS)
+            wait_for_contract(
+                "entry visibility",
+                lambda: entry.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS),
+            )
             marker_name, marker_value = expected_entry.entry_data_attribute
             if entry.get_attribute(marker_name) != marker_value:
                 raise CompatibilityFailure(
@@ -682,9 +742,15 @@ def _run_browser_case(
 
             # Exercise an extension-owned interaction and its own ARIA menu. No
             # Core-only class/id is used as the pass/fail oracle.
-            entry.click(button="right", timeout=ENTRY_TIMEOUT_MS)
+            wait_for_contract(
+                "entry interaction/click",
+                lambda: entry.click(button="right", timeout=ENTRY_TIMEOUT_MS),
+            )
             menu = page.locator('[role="menu"][aria-label="Conversation shortcuts"]')
-            menu.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS)
+            wait_for_contract(
+                "menu visibility",
+                lambda: menu.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS),
+            )
             menu_items = menu.locator('[role="menuitem"]')
             if menu_items.count() != 4:
                 raise CompatibilityFailure(
