@@ -61,7 +61,13 @@ function createFreshDom() {
   });
   window.renderTranscript = (target, msgs) => {
     if (target && msgs) {
-      target.innerHTML = msgs.map(m => `<div class="msg">${typeof m === 'string' ? m : (m.content || '')}</div>`).join('');
+      target.textContent = '';
+      msgs.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'msg';
+        div.textContent = typeof m === 'string' ? m : (m.content || '');
+        target.appendChild(div);
+      });
     }
   };
   window.CSS = { escape: s => s };

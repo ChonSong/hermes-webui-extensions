@@ -231,7 +231,13 @@
       if (e && e.blob) {
         var img = el.querySelector('img.pa-badge-img');
         if (img && img.getAttribute('src') === e.blob) return;   // already right
-        if (el.dataset.paOrig === undefined) el.dataset.paOrig = el.innerHTML;
+        if (!el.__paOrigChildren) {
+          // Capture child nodes in a DocumentFragment instead of innerHTML —
+          // avoids re-parsing potentially tainted HTML on restore.
+          var frag = document.createDocumentFragment();
+          while (el.firstChild) frag.appendChild(el.firstChild);
+          el.__paOrigChildren = frag;
+        }
         el.classList.add('pa-badge');
         el.innerHTML = '';
         img = document.createElement('img');
@@ -245,9 +251,10 @@
     });
   }
   function _restoreBadge(el) {
-    if (el.dataset.paOrig !== undefined) {
-      el.innerHTML = el.dataset.paOrig;
-      delete el.dataset.paOrig;
+    if (el.__paOrigChildren) {
+      el.textContent = '';
+      el.appendChild(el.__paOrigChildren);
+      delete el.__paOrigChildren;
     }
     el.classList.remove('pa-badge');
   }

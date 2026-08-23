@@ -26,7 +26,7 @@ function hasStableApi(){
 
 // ── CSS (inlined) ──
 function injectCss(){
-  if(document.getElementById('ext-tiling-css'))return;
+  if(document.getElementById('ext-tile-css'))return;
   document.head.appendChild(Object.assign(document.createElement('style'),{id:'ext-tile-css',textContent:`
 #ext-tile-grid{position:relative;overflow:hidden;display:none;flex:1 1 0%;min-height:0;min-width:0;gap:4px;padding:4px;background:var(--bg)}
 #ext-tile-grid.ext-tile-grid--active{display:grid;align-items:normal;justify-content:normal;border-top:2px solid var(--accent)}
@@ -76,6 +76,7 @@ const T={
   _saved:null,
   _savedComposer:'',
   _savedModel:'',
+  _prevSession:null,
   _actGen:0
 };
 const tid=i=>T.tiles.find(t=>t.id===i);
@@ -157,9 +158,10 @@ function focusTile(id,opts){
       updateHeader(tile);
     });
   } else {
-    // Empty tile — clear sidebar selection so no session is highlighted
+    // Empty tile — clear sidebar selection so no session is highlighted.
+    // Save the previous session so hideGrid() can restore the correct state.
     const s = getS();
-    if (s) { s.session = null; s.messages = []; s.busy = false; }
+    if (s) { T._prevSession = s.session; s.session = null; s.messages = []; s.busy = false; }
     renderSnapshot(tile);
     updateHeader(tile);
   }
@@ -167,7 +169,6 @@ function focusTile(id,opts){
   // Immediate sync of busy state from S to focused tile
   if(getS().messages&&getS().messages.length>0)tile.messages=[...getS().messages];tile.busy=!!getS().busy;tile.activeStreamId=getS().activeStreamId||null;
   renderSnapshot(tile);
-  updateHeader(tile);
   if(typeof syncTopbar==='function')syncTopbar();
   if(typeof syncModelChip==='function')syncModelChip();
   updateHeader(tile);
@@ -242,9 +243,11 @@ function refreshGrid(){
 }
 
 // ── Busy watcher ──
+// Updates messages/busy/stream state from Core. Does NOT assign session —
+// that would race with loadSession completion and revert to a stale value.
 function startWatcher(){stopWatcher();T._w=setInterval(()=>{
   const t=at();if(!t||T.activeId===null){stopWatcher();return}
-  if(getS().messages&&getS().messages.length>0)t.messages=[...getS().messages];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;if(!getS().busy&&t.session)t.session=getS().session;
+  if(getS().messages&&getS().messages.length>0)t.messages=[...getS().messages];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;
   updateHeader(t);
 },500)}
 function stopWatcher(){T._w&&(clearInterval(T._w),T._w=null)}
@@ -288,7 +291,9 @@ async function showGrid(cols,rows){
   if(T.visible){await switchLayout(cols,rows);return}
   T._cols=cols;T._rows=rows;T.visible=true;
   if(!T._saved){
-    T._saved={...S};
+    // Deep-copy messages and session so live Core mutations don't corrupt the snapshot.
+    const s = getS();
+    T._saved = {...s, messages: [...(s.messages || [])], session: s.session ? {...s.session} : null};
     const cm=document.getElementById('msg');T._savedComposer=cm?cm.value:'';
     const ms=document.getElementById('modelSelect');T._savedModel=ms?ms.value:'';
   }
@@ -344,26 +349,29 @@ async function hideGrid(){
     T.visible=true;
     document.body.classList.add('ext-tiling-body');
     T.grid.classList.add('ext-tile-grid--active');
+    // Reassign #msgInner to the preserved tile so live render owner is restored.
+    // Do NOT assign to the idle node — that would create duplicate IDs.
     document.querySelectorAll('.ext-tile-msg-inner[id="msgInner"]').forEach(el=>el.removeAttribute('id'));
-    const o=document.querySelector('#messages>.messages-inner--idle');if(o){o.id='msgInner';o.classList.remove('messages-inner--idle')}
     const first=T.tiles[0];
     if(first&&first.el){const ni=first.el.querySelector('.ext-tile-msg-inner');if(ni)ni.id='msgInner'}
     T.activeId=first?first.id:null;
     refreshGrid();tbActive();startWatcher();
+    typeof showToast==='function'&&showToast('Some tiles are still streaming; close them first.',3e3,'error');
     return;
   }
   document.querySelectorAll('.ext-tile-msg-inner[id="msgInner"]').forEach(el=>el.removeAttribute('id'));
   const o=document.querySelector('#messages>.messages-inner--idle');if(o){o.id='msgInner';o.classList.remove('messages-inner--idle')}
   T.grid.style.display='none';T.grid.classList.remove('ext-tile-grid--active');
   document.body.classList.remove('ext-tiling-body');
-  const restoreFrom=focusedTile&&focusedTile.session?focusedTile.session:T._saved;
+  const restoreFrom = focusedTile && focusedTile.session ? focusedTile.session
+    : (T._prevSession || T._saved);
   // Presence/ownership, not truthiness: a focused tile with a session owns the
   // composer slot even when its draft is legitimately empty (''), so an empty
   // B draft must NOT fall back to the pre-grid A draft.
   const ownsComposer=!!(focusedTile&&focusedTile.sid);
   const savedComposer=ownsComposer?focusedTile.cv:T._savedComposer;
   const savedModel=ownsComposer?focusedTile.mv:T._savedModel;
-  const s=T._saved;T._saved=null;
+  const s=T._saved;T._saved=null;T._prevSession=null;
   // If we have a focused tile with a session, restore from it (async)
   if(restoreFrom&&restoreFrom!==s&&restoreFrom.session_id&&typeof window.loadSession==='function'){
     // Optimistic update: set getS().session immediately so tests/loadSession handlers see correct state
@@ -406,10 +414,12 @@ async function closeAll(){
     }
   });
   const nonBusy=T.tiles.filter(t=>!t.busy);
-  for(const t of nonBusy){if(t.el)t.el.remove()}
-  for(const t of toClose){if(t.el)t.el.remove()}
+  for(const t of nonBusy){if(t.el){if(t.sid)badge(t.sid,-1);t.el.remove()}}
+  for(const t of toClose){if(t.el){if(t.sid)badge(t.sid,-1);t.el.remove()}}
   T.tiles=[...preserved];
   if(preserved.length===0){T.activeId=null;T._tc={};document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove())}
+  else{T._tc={};T.tiles.forEach(t=>{if(t.sid)T._tc[t.sid]=(T._tc[t.sid]||0)+1});applyBadges()}
+  return preserved.length;
 }
 
 // ── Session open handler ──

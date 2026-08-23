@@ -54,6 +54,12 @@
       "type": "boolean",
       "label": "Show tile count badges in sidebar",
       "default": true
+    },
+    {
+      "key": "preload_timeout_ms",
+      "type": "number",
+      "label": "Preload reservation timeout (ms)",
+      "default": 5000
     }
   ]
 }
