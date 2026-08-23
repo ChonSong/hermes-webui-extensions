@@ -6,6 +6,14 @@
   // conversation, persisting the pin set client-side (localStorage) per
   // session. No backend, no network, no core API calls.
   //
+  // SECURITY — innerHTML usage:
+  // This extension uses innerHTML ONLY with static SVG templates returned by
+  // pinButtonSvg() — a pure function that takes a boolean and returns a constant
+  // SVG string. The `\u00d7` (×) character is a hardcoded Unicode literal. No user
+  // data flows through innerHTML. User content (message previews) is rendered via
+  // textContent or the sanitized popover builder. Future contributors: NEVER
+  // interpolate user data into innerHTML — use textContent or DocumentFragment.
+  //
   // Design reference: closed core PR #2534 by @Michaelyklam (per-message pin
   // button, header popover with badge, click-to-jump, 3-pin cap). That PR
   // persisted server-side via a new core endpoint; this extension persists in

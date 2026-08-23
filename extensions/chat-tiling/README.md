@@ -83,6 +83,7 @@ composer value + model selection.
 |-----|------|---------|-------------|
 | `auto_tile` | boolean | `true` | Auto-fill tiles on sidebar session click |
 | `show_sidebar_badges` | boolean | `true` | Show active-tile-count badges in sidebar |
+| `preload_timeout_ms` | number | `5000` | Time (ms) before a reserved tile slot is released if the session doesn't load |
 
 ## Install For Local Testing
 

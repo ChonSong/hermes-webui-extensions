@@ -9,6 +9,15 @@
 // - Leaving tiling restores one coherent session projection from the focused tile.
 // - Full-grid navigation is rejected (returns {cancel:true}).
 // - Core owns its #messages scrolling lifecycle; the extension does not compete.
+//
+// SECURITY — innerHTML usage:
+// This extension uses innerHTML ONLY with static template literals that contain
+// no user-controlled data. All SVG icons are constant strings (Svg.*). No user
+// input, session data, or API responses flow through innerHTML. Where user data
+// IS rendered (session titles, messages), we use textContent / renderTranscript()
+// which applies the sanitized markdown pipeline. This pattern prevents XSS while
+// keeping the code readable. Future contributors: NEVER interpolate user data
+// into innerHTML — use textContent or DocumentFragment instead.
 
 (()=>{
 'use strict';
@@ -16,6 +25,9 @@
 const getS = () => {
   try { return (typeof S !== 'undefined') ? S : {}; } catch(_) { return {}; }
 };
+
+// ── Constants ──
+const EXT_TILING_CSS_ID = 'ext-tile-css';
 
 // ── Feature detection ──
 function hasStableApi(){
@@ -26,8 +38,8 @@ function hasStableApi(){
 
 // ── CSS (inlined) ──
 function injectCss(){
-  if(document.getElementById('ext-tile-css'))return;
-  document.head.appendChild(Object.assign(document.createElement('style'),{id:'ext-tile-css',textContent:`
+  if(document.getElementById(EXT_TILING_CSS_ID))return;
+  document.head.appendChild(Object.assign(document.createElement('style'),{id:EXT_TILING_CSS_ID,textContent:`
 #ext-tile-grid{position:relative;overflow:hidden;display:none;flex:1 1 0%;min-height:0;min-width:0;gap:4px;padding:4px;background:var(--bg)}
 #ext-tile-grid.ext-tile-grid--active{display:grid;align-items:normal;justify-content:normal;border-top:2px solid var(--accent)}
 body.ext-tiling-body #messages>:not(#ext-tile-grid):not([aria-live]):not([role=status]){display:none!important}
@@ -245,6 +257,12 @@ function refreshGrid(){
 // ── Busy watcher ──
 // Updates messages/busy/stream state from Core. Does NOT assign session —
 // that would race with loadSession completion and revert to a stale value.
+// RACE SCENARIO: If the busy watcher assigned session while loadSession was
+// still in-flight, the watcher would set session to the OLD value just as
+// loadSession completes and sets the NEW value. The result: the focused tile
+// shows the wrong session until the next watcher tick (500ms later). By NOT
+// assigning session here, we let loadSession be the sole owner of session
+// transitions. The watcher only updates messages/busy/stream metadata.
 function startWatcher(){stopWatcher();T._w=setInterval(()=>{
   const t=at();if(!t||T.activeId===null){stopWatcher();return}
   if(getS().messages&&getS().messages.length>0)t.messages=[...getS().messages];t.busy=!!getS().busy;t.activeStreamId=getS().activeStreamId||null;
@@ -292,6 +310,12 @@ async function showGrid(cols,rows){
   T._cols=cols;T._rows=rows;T.visible=true;
   if(!T._saved){
     // Deep-copy messages and session so live Core mutations don't corrupt the snapshot.
+    // Method: JSON-compatible spread (shallow clone of top-level S, shallow clone of
+    // messages array, shallow clone of session object). This is sufficient because
+    // S.messages is a flat array of message objects and S.session is a flat object
+    // with no nested functions, Symbols, Date objects, or circular references.
+    // structuredClone is not needed for these simple shapes and avoids the
+    // compatibility concern with older runtimes.
     const s = getS();
     T._saved = {...s, messages: [...(s.messages || [])], session: s.session ? {...s.session} : null};
     const cm=document.getElementById('msg');T._savedComposer=cm?cm.value:'';
@@ -344,8 +368,8 @@ async function hideGrid(){
   T.visible=false;stopWatcher();
   const focusedTile=at();
   if(T.activeId){const la=at();if(la){sc(la)}}
-  await closeAll();
-  if(T.tiles.length>0){
+  const preservedCount = await closeAll();
+  if(preservedCount > 0){
     T.visible=true;
     document.body.classList.add('ext-tiling-body');
     T.grid.classList.add('ext-tile-grid--active');
@@ -376,7 +400,7 @@ async function hideGrid(){
   if(restoreFrom&&restoreFrom!==s&&restoreFrom.session_id&&typeof window.loadSession==='function'){
     // Optimistic update: set getS().session immediately so tests/loadSession handlers see correct state
     getS().session=restoreFrom;
-    getS().messages=[...(focusedTile.messages||[])];
+    getS().messages=[...(restoreFrom&&restoreFrom.messages||[])];
     window.loadSession(restoreFrom.session_id,{skipExtHooks:true}).catch(()=>{
       if(s)Object.assign(getS(),s);else{getS().session=null;getS().messages=[];getS().busy=false;getS().activeStreamId=null}
     })
@@ -459,7 +483,9 @@ function initCapture(){
       t._gen=(t._gen||0)+1;
       const _gen=t._gen;
       clearTimeout(t._pendingTimer);
-      t._pendingTimer=setTimeout(()=>{
+      const _timeout = gs('preload_timeout_ms', 5000);
+      const _t = (typeof _timeout === 'number' && Number.isFinite(_timeout) && _timeout > 0) ? _timeout : 5000;
+      t._pendingTimer = setTimeout(()=>{
         // Release only the reservation this timer owns. If the tile has
         // since been re-reserved for another session (or a newer generation),
         // leave it alone — a stale B timer must not free C's slot.
@@ -476,7 +502,7 @@ function initCapture(){
             }
           }
         }
-      },gs('preload_timeout_ms',5000));
+      },_t);
     }
     if(opts&&opts.loaded&&sid){
       if(!gs('auto_tile',true))return {};
