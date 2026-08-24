@@ -3,7 +3,7 @@
     {
       "id": "profile-avatars",
       "name": "Profile Avatars",
-      "description": "Per-profile avatars on chips, transcript badges, and the session list \u2014 server-stored, synced across devices.",
+      "description": "Per-profile avatars on chips, transcript badges, and the session list — server-stored via loopback sidecar on this device, with zero localStorage.",
       "scripts": [
         "assets/avatars.js"
       ],

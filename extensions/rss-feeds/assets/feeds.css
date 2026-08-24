@@ -181,6 +181,10 @@
 .mc-feed-spinning svg {
   animation: mc-feed-spin 0.9s linear infinite;
 }
+@keyframes mc-feed-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 /* Entry cards — Source + Category prominently visible */
 .mc-feed-entry {
   margin-bottom: 12px;
@@ -208,7 +212,7 @@
   border: 1px solid var(--accent-bg-strong);
 }
 .mc-feed-badge-cat {
-  border: 1px solid currentColor;
+  border: 1px solid currentcolor;
   background: transparent;
 }
 /* Per-card head row: left holds source + matched-keyword chips,
@@ -359,6 +363,10 @@
   background: var(--accent-bg-strong);
   color: var(--accent-text);
   animation: mcSumPulse 1.4s ease-in-out infinite;
+}
+@keyframes mcSumPulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 .mc-summary-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
 .mc-summary-item {
@@ -624,6 +632,10 @@
 .mc-feed-timer.is-due { color: var(--accent, #5cdbd3); }
 .mc-feeds-timer.is-due.has-ring::before,
 .mc-feed-timer.is-due.has-ring::before { animation: mc-ring-pulse 1s ease-in-out infinite; }
+@keyframes mc-ring-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
 /* ── Sidebar toolbar (filter toggle + keywords) ───────────────── */
 .mc-feed-sidebar-toolbar {
   display: flex;
@@ -1332,9 +1344,9 @@ mark.mc-feed-hl {
 .mc-feed-progress--busy .mc-feed-progress-track { overflow: hidden; }
 .mc-feed-progress--busy .mc-feed-progress-fill {
   width: 35% !important;
-  animation: hxFeedIndet 1.15s ease-in-out infinite;
+  animation: hx-feed-indet 1.15s ease-in-out infinite;
 }
-@keyframes hxFeedIndet {
+@keyframes hx-feed-indet {
   0%   { transform: translateX(-130%); }
   100% { transform: translateX(330%); }
 }
@@ -1496,7 +1508,7 @@ mark.mc-feed-hl {
     background: var(--surface, var(--bg, #1a1b1e));
     border: 1px solid var(--border, rgba(255,255,255,.14));
     box-shadow: 0 6px 20px rgba(0,0,0,.28);
-    animation: mcMenuPop .16s ease;
+    animation: mc-menu-pop .16s ease;
   }
   .hx-feeds-card.is-menu-open .hx-feeds-actions-move { display: flex; }
   .hx-feeds-actions-move .panel-head-btn { width: 38px; height: 38px; border-radius: 50%; }
@@ -1573,7 +1585,7 @@ mark.mc-feed-hl {
 /* ── Burger menu button (mobile) ───────────────────────────────── */
 .hx-feeds-burger { display: none; }             /* desktop: cluster is inline, no burger */
 .hx-feeds-burger.is-active { color: var(--accent-text, var(--accent)); }
-@keyframes mcMenuPop { from { opacity: 0; transform: translateY(6px) scale(.96); } to { opacity: 1; transform: none; } }
+/* renamed to mc-menu-pop in usage */
 @media (max-width: 700px) {
   /* Bar burger: sits in the Expand/Collapse/Filter bar on grouped pages */
   .hx-feeds-burger-bar {
@@ -1620,6 +1632,20 @@ mark.mc-feed-hl {
 .mc-feed-settings-popup .mc-summarize-item,
 .mc-feed-settings-popup .mc-cat-head { padding: 2px 6px; font-size: 11.5px; }
 .mc-feed-settings-popup .mc-cat-emoji, .mc-feed-settings-popup .mc-cat-icon { font-size: 12px; }
+
+/* ── Keyframe definitions ────────────────────────────────────── */
+@keyframes mc-feed-title-marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+@keyframes mcFeedShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+@keyframes mcPopupSheetUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
 .mc-feed-settings-popup .mc-summarize-all { font-size: 11px; }
 .mc-feed-settings-popup .mc-btn-sm { padding: 4px 12px; font-size: 12px; }
 .mc-feed-settings-popup .mc-summarize-actions { padding: 6px 2px 2px; }

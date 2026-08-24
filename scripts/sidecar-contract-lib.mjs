@@ -172,6 +172,10 @@ function hasTopLevelRegister(filePath) {
   const result = spawnSync('python3', ['-c', check, filePath], {
     stdio: 'ignore'
   });
+  // Detect failed spawn via result.error or null result.status
+  if (result.error || result.status === null) {
+    throw new Error(`Failed to spawn python3: ${result.error?.message ?? 'unknown error'}`);
+  }
   return result.status === 0;
 }
 

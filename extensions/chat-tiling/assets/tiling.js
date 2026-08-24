@@ -419,17 +419,20 @@ async function hideGrid(){
 }
 
 async function closeAll(){
-  const busy=T.tiles.filter(t=>t.busy&&t.activeStreamId);
-  const results=await Promise.allSettled(busy.map(t=>{
+  // Every busy tile must be accounted for: stream-backed tiles (with activeStreamId)
+  // go through cancel/preserve; busy tiles without a stream ID are removed.
+  const streamBacked=T.tiles.filter(t=>t.busy&&t.activeStreamId);
+  const busyNoStream=T.tiles.filter(t=>t.busy&&!t.activeStreamId);
+  const results=await Promise.allSettled(streamBacked.map(t=>{
     if(typeof cancelSessionStream==='function'){
       return cancelSessionStream({session_id:t.session?t.session.session_id:null,active_stream_id:t.activeStreamId})
     }
     return true;
   }));
   const toClose=[],preserved=[];
-  for(let i=0;i<busy.length;i++){
+  for(let i=0;i<streamBacked.length;i++){
     const r=results[i];
-    if(r.status==='fulfilled'&&r.value!==false){toClose.push(busy[i])}else{preserved.push(busy[i])}
+    if(r.status==='fulfilled'&&r.value!==false){toClose.push(streamBacked[i])}else{preserved.push(streamBacked[i])}
   }
   toClose.forEach(t=>{
     if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){
@@ -440,6 +443,8 @@ async function closeAll(){
   const nonBusy=T.tiles.filter(t=>!t.busy);
   for(const t of nonBusy){if(t.el){if(t.sid)badge(t.sid,-1);t.el.remove()}}
   for(const t of toClose){if(t.el){if(t.sid)badge(t.sid,-1);t.el.remove()}}
+  // Busy tiles without a stream ID cannot be preserved (nothing to cancel) — remove them.
+  for(const t of busyNoStream){if(t.el){if(t.sid)badge(t.sid,-1);t.el.remove()}}
   T.tiles=[...preserved];
   if(preserved.length===0){T.activeId=null;T._tc={};document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove())}
   else{T._tc={};T.tiles.forEach(t=>{if(t.sid)T._tc[t.sid]=(T._tc[t.sid]||0)+1});applyBadges()}

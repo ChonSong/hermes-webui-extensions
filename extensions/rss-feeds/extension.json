@@ -53,6 +53,7 @@
         "/api/extensions/rss-feeds/sidecar/api/feeds/summary-status",
         "/api/extensions/rss-feeds/sidecar/api/feeds/refresh-status",
         "/api/extensions/rss-feeds/sidecar/api/feeds/summary-test-status",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/add-status",
         "/api/extensions/rss-feeds/sidecar/api/feeds/favicon"
       ],
       "write": [

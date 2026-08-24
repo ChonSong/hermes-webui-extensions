@@ -1,6 +1,9 @@
 {
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=17"
+  },
   "devDependencies": {
     "jsdom": "^25.0.1",
     "playwright": "^1.62.1"

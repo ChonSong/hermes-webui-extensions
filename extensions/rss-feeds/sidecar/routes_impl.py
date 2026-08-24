@@ -75,7 +75,7 @@ def _json_body(req):
         return {}
 
 
-def _dispatch(app, fn, req, *args):
+def _dispatch(app, method, path, fn, req, *args):
     # feeds.py handlers write via j()/raw send_* and then `return j(...)` (which is
     # None) — so the return value is NOT a reliable "handled" signal. Detect whether
     # a response was actually written instead; an unmatched route writes nothing.
@@ -83,7 +83,10 @@ def _dispatch(app, fn, req, *args):
     try:
         fn(cap, *args)
     except Exception as exc:  # never leak a traceback
-        return app.json({"error": f"sidecar error: {exc}"}, status=500)
+        # Only expose exception type, not message or args
+        import logging
+        logging.exception("Route dispatch failed for %s %s", method, path)
+        return app.json({"error": f"sidecar error: {type(exc).__name__}"}, status=500)
     if not cap.responded:
         return app.json({"error": "not found"}, status=404)
     return cap.result()
@@ -93,75 +96,75 @@ def register(app) -> None:
     # -- GET (feeds.handle_get routes internally by path) --
     @app.route("GET", "/api/feeds")
     def g_root(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/favicon")
     def g_favicon(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/favicon", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/settings")
     def g_settings(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/settings", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/summary-status")
     def g_sumstatus(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/summary-status", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/refresh-status")
     def g_refreshstatus(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/refresh-status", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/summary-test-status")
     def g_sumteststatus(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/summary-test-status", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/add-status")
     def g_addstatus(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/add-status", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/entries")
     def g_entries(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/entries", feeds.handle_get, req, _parsed(req))
 
     @app.route("GET", "/api/feeds/summaries")
     def g_summaries(req):
-        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+        return _dispatch(app, "GET", "/api/feeds/summaries", feeds.handle_get, req, _parsed(req))
 
     # -- POST --
     @app.route("POST", "/api/feeds")
     def p_root(req):
-        return _dispatch(app, feeds.handle_post, req, _parsed(req), _json_body(req))
+        return _dispatch(app, "POST", "/api/feeds", feeds.handle_post, req, _parsed(req), _json_body(req))
 
     @app.route("POST", "/api/feeds/refresh")
     def p_refresh(req):
-        return _dispatch(app, feeds.handle_post, req, _parsed(req), _json_body(req))
+        return _dispatch(app, "POST", "/api/feeds/refresh", feeds.handle_post, req, _parsed(req), _json_body(req))
 
     @app.route("POST", "/api/feeds/read")
     def p_read(req):
-        return _dispatch(app, feeds.handle_post, req, _parsed(req), _json_body(req))
+        return _dispatch(app, "POST", "/api/feeds/read", feeds.handle_post, req, _parsed(req), _json_body(req))
 
     @app.route("POST", "/api/feeds/summary-test")
     def p_sumtest(req):
-        return _dispatch(app, feeds.handle_post, req, _parsed(req), _json_body(req))
+        return _dispatch(app, "POST", "/api/feeds/summary-test", feeds.handle_post, req, _parsed(req), _json_body(req))
 
     @app.route("POST", "/api/feeds/summarize")
     def p_summarize(req):
-        return _dispatch(app, feeds.handle_post, req, _parsed(req), _json_body(req))
+        return _dispatch(app, "POST", "/api/feeds/summarize", feeds.handle_post, req, _parsed(req), _json_body(req))
 
     @app.route("POST", "/api/feeds/settings")
     def p_settings(req):
-        return _dispatch(app, feeds.handle_post, req, _parsed(req), _json_body(req))
+        return _dispatch(app, "POST", "/api/feeds/settings", feeds.handle_post, req, _parsed(req), _json_body(req))
 
     # -- PATCH (feed edit; feeds.handle_patch extracts the id from the path) --
     @app.route("PATCH", "/api/feeds/{fid}")
     def pa_feed(req):
-        return _dispatch(app, feeds.handle_patch, req, _parsed(req), _json_body(req))
+        return _dispatch(app, "PATCH", "/api/feeds/{fid}", feeds.handle_patch, req, _parsed(req), _json_body(req))
 
     # -- DELETE (summaries first — more specific — then a feed by id) --
     @app.route("DELETE", "/api/feeds/summaries/{sid}")
     def d_summary(req):
-        return _dispatch(app, feeds.handle_delete, req, _parsed(req))
+        return _dispatch(app, "DELETE", "/api/feeds/summaries/{sid}", feeds.handle_delete, req, _parsed(req))
 
     @app.route("DELETE", "/api/feeds/{fid}")
     def d_feed(req):
-        return _dispatch(app, feeds.handle_delete, req, _parsed(req))
+        return _dispatch(app, "DELETE", "/api/feeds/{fid}", feeds.handle_delete, req, _parsed(req))

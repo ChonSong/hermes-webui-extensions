@@ -104,7 +104,8 @@ function fullyDecodePath(value) {
   } catch (_) {
     return null;
   }
-  return current;
+  // All 10 attempts exhausted without reaching a stable value — return null
+  return null;
 }
 
 function isCoreCompatibleSidecarOrigin(value) {

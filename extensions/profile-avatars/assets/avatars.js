@@ -354,7 +354,7 @@
       });
       return r.json();
     }).then(function (jj) {
-      var raw = jj.url || ('/api/avatars/' + name + '?v=' + Math.floor(Date.now() / 1000));
+      var raw = jj.url || ('/api/avatars/' + encodeURIComponent(name) + '?v=' + Math.floor(Date.now() / 1000));
       _record(name, BASE + raw, _byProfile[name] || {});
       _pruneBlobCache();
       return _prefetchImages().then(function () { _broadcast(); return jj; });

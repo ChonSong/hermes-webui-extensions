@@ -70,6 +70,20 @@ The sidecar reads/writes only:
   cache alongside it.
 - **`sidecar/feeds_seed.txt`** (bundled) — read-only starter subscription list.
 
+### State-directory resolution
+
+The database uses separate state-directory resolution:
+`HERMES_FEEDS_STATE_DIR` → `HERMES_WEBUI_STATE_DIR` → default webUI state location.
+
+The token uses: `HERMES_EXT_SIDECAR_TOKEN_FILE` → `HERMES_WEBUI_STATE_DIR`
+→ `HERMES_HOME/webUI` → platform default.
+
+`HERMES_FEEDS_STATE_DIR` separates database storage from token storage
+and does not alone cause authentication failure. The token file is resolved
+independently, so a custom feeds state directory does not break sidecar auth.
+
+`feeds.js` is a shipped manifest asset.
+
 Summarize credentials (`OPENROUTER_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_API_KEY`)
 are read **only from the sidecar's own process environment** — the sidecar does not
 read `~/.hermes/.env` or any other credential file.

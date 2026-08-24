@@ -1,7 +1,6 @@
 🇺🇸 US
 NPR News https://feeds.npr.org/1001/rss.xml — News — 9/10
 AP Top News https://rsshub.app/apnews/topics/apf-topnews — News — 9/10
-Reuters US https://feeds.reuters.com/reuters/topNews — News, Politics — 10/10
 The New York Times https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml — News, Politics — 10/10
 Washington Post https://feeds.washingtonpost.com/rss/world — News, Politics — 9/10
 Politico https://www.politico.com/rss/politicopicks.xml — Politics — 9/10
@@ -21,7 +20,7 @@ AI News https://artificialintelligence-news.com/feed/ — AI — 7/10
 Towards AI https://pub.towardsai.net/feed — AI — 7/10
 
 🌍 Europe
-BBC News http://feeds.bbci.co.uk/news/rss.xml — News — 10/10
+BBC News https://feeds.bbci.co.uk/news/rss.xml — News — 10/10
 The Guardian https://www.theguardian.com/world/rss — News, Politics — 9/10
 Financial Times https://www.ft.com/rss/home — Economy, News — 10/10
 The Economist https://www.economist.com/feeds/print-edition/technology.xml — Economy, Politics, News — 10/10
@@ -31,7 +30,6 @@ Politico Europe https://www.politico.eu/feed/ — Politics — 9/10
 El País (English) https://feeds.elpais.com/mrss-s/pages/ep/site/english.elpais.com/portada — News, Politics — 8/10
 
 🌎 Latin America
-Reuters Latin America https://feeds.reuters.com/reuters/latestNews — News — 9/10
 Mercopress https://en.mercopress.com/rss — News, Politics — 7/10
 Buenos Aires Herald https://buenosairesherald.com/feed — News, Economy — 6/10
 Folha de S.Paulo (English) https://www1.folha.uol.com.br/internacional/en/rss091.xml — News, Politics — 8/10
