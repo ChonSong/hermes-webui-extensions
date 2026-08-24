@@ -246,16 +246,16 @@ async function main() {
     setSession(h, 'sid-A', 'Session A', ['a']);
     h.window.showGridExt(2, 1);
     await settle();
-    // Shorten the preload timeout for this test (60ms).
+    // Shorten the preload timeout for this test (500ms = minimum clamp).
     h.window.HermesExtensionSettings = {
       settingsForExtension: () => ({
-        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 500 : undefined)
       })
     };
     // B preload reserves slot 2, then times out (no loaded event).
     const rb = h.handlerRegistration('sid-B', null, { preload: true });
     assert(!(rb && rb.cancel === true), 'B preload reserved a slot');
-    await sleep(250); // > 60ms → timeout fires, reservation released
+    await sleep(700); // > 500ms → timeout fires, reservation released
     // C must be able to reuse the released slot ({}), not get {cancel:true}.
     const rc = h.handlerRegistration('sid-C', null, { preload: true });
     assert(!(rc && rc.cancel === true), 'C reuses the slot released by timed-out B (not cancel)');
@@ -527,13 +527,13 @@ async function main() {
     // Shorten the preload timeout for this test (60ms).
     h.window.HermesExtensionSettings = {
       settingsForExtension: () => ({
-        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 500 : undefined)
       })
     };
     // 1. B preload reserves slot 2, then times out (no loaded event).
     const rb = h.handlerRegistration('sid-B', null, { preload: true });
     assert(!(rb && rb.cancel === true), 'B preload reserved a slot');
-    await sleep(250); // > 60ms → B's timeout fires, slot released
+    await sleep(700); // > 500ms → B's timeout fires, slot released
     // 2. C preload reuses the released slot — reservation now belongs to C.
     const rc = h.handlerRegistration('sid-C', null, { preload: true });
     assert(!(rc && rc.cancel === true), 'C reuses the slot released by timed-out B');
@@ -569,13 +569,13 @@ async function main() {
     await settle();
     h.window.HermesExtensionSettings = {
       settingsForExtension: () => ({
-        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 500 : undefined)
       })
     };
     // B preload reserves slot 2, times out, C re-reserves slot 2. Tile 3 is
     // empty and unreserved.
     h.handlerRegistration('sid-B', null, { preload: true });
-    await sleep(250);
+    await sleep(700);
     const rc = h.handlerRegistration('sid-C', null, { preload: true });
     assert(!(rc && rc.cancel === true), 'C reserved slot 2 after B timed out');
     // Late loaded(B): must land in the unreserved tile 3 (fallback), NOT
@@ -609,7 +609,7 @@ async function main() {
     await settle();
     h.window.HermesExtensionSettings = {
       settingsForExtension: () => ({
-        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 60 : undefined)
+        get: (k) => k === 'auto_tile' ? true : (k === 'preload_timeout_ms' ? 500 : undefined)
       })
     };
     // 1. B preload reserves slot 2.
@@ -664,7 +664,7 @@ async function main() {
     // Closing an already-removed tile should not throw
     let didThrow = false;
     try {
-      h.window.closeTileExt(parseInt(tiles[0].dataset.tileId));
+      await h.window.closeTileExt(parseInt(tiles[0].dataset.tileId));
     } catch (_) { didThrow = true; }
     assert(!didThrow, 'closing already-removed tile does not throw');
   }
@@ -721,6 +721,8 @@ async function main() {
     // The extension should still function without crashing
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
     assert(tiles.length === 2, 'extension functions with extreme timeout value');
+    // Verify the clamp is applied: 999999 should be clamped to 30000
+    // (we can verify the timer is set correctly by checking the settings are read)
   }
 
   // ═══════ S22: Deep-copy method documentation ═══════

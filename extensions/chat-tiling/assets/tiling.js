@@ -489,7 +489,10 @@ function initCapture(){
       const _gen=t._gen;
       clearTimeout(t._pendingTimer);
       const _timeout = gs('preload_timeout_ms', 5000);
-      const _t = (typeof _timeout === 'number' && Number.isFinite(_timeout) && _timeout > 0) ? _timeout : 5000;
+      // Clamp to [500, 30000] ms — values outside this range are unreasonable
+      // (too short = reservation expires before load; too long = orphaned slot).
+      let _t = (typeof _timeout === 'number' && Number.isFinite(_timeout) && _timeout > 0) ? _timeout : 5000;
+      _t = Math.max(500, Math.min(30000, _t));
       t._pendingTimer = setTimeout(()=>{
         // Release only the reservation this timer owns. If the tile has
         // since been re-reserved for another session (or a newer generation),
