@@ -519,6 +519,13 @@
       let t=findPendingTile(sid);
       if(!t){
         t=findEmptyTile();
+        if(!t){
+          // No empty tiles — steal the oldest pending slot (timed-out preload)
+          const pendingTiles=T.tiles.filter(t=>t._pending&&t._pendingSid!==sid);
+          if(pendingTiles.length>0){
+            t=pendingTiles[0]; // FIFO: replace oldest pending
+          }
+        }
       }
       if(t){
         t._pending=true;
@@ -529,42 +536,27 @@
 
     if(opts.loaded){
       // Loaded: Core has loaded the session. Route to the reserved tile.
-      if(!gs('auto_tile',true)){
-        // Find the tile that was reserved during preload
-        const pending=findPendingTile(sid);
-        if(pending){
-          pending._pending=false;
-          pending._pendingSid=null;
-          pending.sid=sid;
-          pending.session=data;
-          pending.messages=data?data.messages||[]:[];
-          pending.busy=false;
-          pending.activeStreamId=null;
-          updateHeader(pending);
-          focusTile(pending.id,{alreadyLoaded:true});
-        }
-        return {};
-      }
+      if(!gs('auto_tile',true))return {}; // auto_tile disabled — don't tile
       let t=findPendingTile(sid);
-      if(!t)t=findEmptyTile();
-      if(!t&&T.tiles.length>0){
-        t=T.tiles[T.tiles.length-1];
+      if(!t){
+        t=findEmptyTile();
+        if(!t)return {}; // No slot available — ignore
       }
-      if(t){
-        const isNew=!t.sid;
-        t._pending=false;
-        t._pendingSid=null;
-        t.sid=sid;
-        t.session=data;
-        t.messages=data?data.messages||[]:[];
-        t.busy=false;
-        t.activeStreamId=null;
-        updateHeader(t);
-        if(isNew&&T.tiles.length>1){
-          focusTile(t.id,{alreadyLoaded:true});
-        }else if(T.tiles.length===1){
-          // First tile — already focused
-        }
+      // If the pending slot was already reused by another session, ignore
+      if(t._pending&&t._pendingSid!==sid)return {};
+      if(t.sid&&t.sid!==sid)return {}; // Already has a different session
+      
+      const isNew=!t.sid;
+      t._pending=false;
+      t._pendingSid=null;
+      t.sid=sid;
+      t.session=data;
+      t.messages=data?data.messages||[]:[];
+      t.busy=false;
+      t.activeStreamId=null;
+      updateHeader(t);
+      if(isNew&&T.tiles.length>1){
+        focusTile(t.id,{alreadyLoaded:true});
       }
       updateBadgeCounts();
       return {};
@@ -621,15 +613,14 @@
   function initPanelGating(){
     const main=document.querySelector('main.main');
     if(!main)return;
-    if(typeof MutationObserver==='undefined')return;
-    T._panelObs=new MutationObserver(()=>{
+    if(typeof window.MutationObserver==='undefined')return;
+    T._panelObs=new window.MutationObserver(()=>{
       const tb=document.getElementById('ext-tiling-toolbar');
       if(!tb)return;
       const isChat=main.classList.contains('chat')&&!main.classList.contains('showing-tasks');
       tb.classList.toggle('ext-tiling-toolbar--hidden',!isChat);
     });
     T._panelObs.observe(main,{attributes:true,attributeFilter:['class']});
-    // Set initial state
     const isChat=main.classList.contains('chat')&&!main.classList.contains('showing-tasks');
     const tb=document.getElementById('ext-tiling-toolbar');
     if(tb)tb.classList.toggle('ext-tiling-toolbar--hidden',!isChat);
