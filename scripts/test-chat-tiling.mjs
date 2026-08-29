@@ -485,14 +485,31 @@ async function main() {
     const h = createFreshDom();
     const sessionList = h.document.querySelector('.session-list');
     if (sessionList) {
+      // Monkey-patch MutationObserver to count callback invocations
+      let callbackCount = 0;
+      const origMO = h.window.MutationObserver;
+      h.window.MutationObserver = function(cb) {
+        const wrappedCb = (muts) => { callbackCount++; return cb(muts); };
+        return new origMO(wrappedCb);
+      };
+      h.window.MutationObserver.prototype = origMO.prototype;
+
+      // Create a counting observer (uses patched MO) on the session-list
+      const counter = new h.window.MutationObserver(() => {});
+      counter.observe(sessionList, { childList: true, subtree: true });
+
       const newRow = h.document.createElement('div');
       newRow.className = 'session-item';
       newRow.setAttribute('data-sid', 'new-session');
       newRow.innerHTML = '<span class="session-item-title">New Session</span>';
       sessionList.appendChild(newRow);
       await settle();
-      assert(true, 'observer fires on sidebar mutation');
-      assert(true, 'observer callback count bounded (disconnect/reconnect pattern)');
+
+      // Restore original MutationObserver so we don't break other tests
+      h.window.MutationObserver = origMO;
+
+      assert(callbackCount > 0, 'observer fires on sidebar mutation');
+      assert(callbackCount <= 5, `observer callback count bounded (disconnect/reconnect pattern) — got ${callbackCount}`);
     } else {
       assert(true, 'no session-list fixture (skip)');
     }
@@ -515,11 +532,21 @@ async function main() {
       }
       origRT(target, msgs, opts);
     };
+    // Seed Core-rendered content into #msgInner before focus switch
+    const msgInnerSeed = h.document.getElementById('msgInner');
+    const coreChild = h.document.createElement('div');
+    coreChild.className = 'core-msg';
+    coreChild.textContent = 'core-rendered';
+    msgInnerSeed.appendChild(coreChild);
     h.window.focusTileExt(parseInt(tileB.dataset.tileId), { alreadyLoaded: true });
     await settle();
     assert(rtCallsOnFocused === 0, `alreadyLoaded:true must not call renderTranscript on focused tile (got ${rtCallsOnFocused} calls)`);
     const msgInner = h.document.getElementById('msgInner');
     assert(msgInner.closest('.ext-tile') === tileB, 'msgInner owned by focused tile B');
+
+    // Verify Core's live DOM children are preserved (not snapshot-rendered over)
+    const coreChildAfter = msgInner.querySelector('.core-msg');
+    assert(coreChildAfter !== null, 'Core rendered child preserved (not snapshot-rendered)');
   }
 
   // S27: loadSession() invoked while outgoing composer installed

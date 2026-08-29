@@ -15,7 +15,7 @@
   const T = {
     tiles: [], activeId: null, visible: false, _cols: 0, _rows: 0,
     _saved: null, _savedComposer: '', _savedModel: '', _w: null,
-    _actGen: 0, _watcherGeneration: 0, _closing: new Set(),
+    _watcherGeneration: 0, _closing: new Set(),
     _msgInnerOriginalParent: null, _msgInnerOriginalNextSibling: null,
     _panelObs: null, _badgeObserver: null
   };
@@ -274,7 +274,6 @@
     const tile=tid(id);
     if(!tile)return;
     if(T.activeId===id)return;
-    const gen=++T._actGen;
     const outgoing=at();
     if(outgoing)sc(outgoing);
 
