@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1540" height="710" viewBox="-70 -70 1540 710">
+<style>
+  text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+</style>
+<rect x="50" y="50" width="700" height="600" fill="#fff5f5" stroke="#e03131" stroke-width="3" opacity="1" />
+<text x="400" y="80" font-size="20" fill="#e03131" text-anchor="middle" dominant-baseline="middle" opacity="1">❌ CURRENT (BROKEN) ARCHITECTURE</text>
+<rect x="80" y="120" width="300" height="200" fill="#e9ecef" stroke="#868e96" stroke-width="2" opacity="1" />
+<text x="230" y="142.5" font-size="16" fill="#868e96" text-anchor="middle" dominant-baseline="middle" opacity="1">#messages (HIDDEN)</text>
+<rect x="100" y="170" width="260" height="130" fill="#dee2e6" stroke="#868e96" stroke-width="1" opacity="1" />
+<text x="230" y="190" font-size="14" fill="#868e96" text-anchor="middle" dominant-baseline="middle" opacity="1">#msgInner (DETACHED)</text>
+<text x="230" y="240" font-size="12" fill="#e03131" text-anchor="middle" dominant-baseline="middle" opacity="1">display: none
+scrollTop = 0
+pagination broken
+virtualization dead
+scrollHeight = 0</text>
+<rect x="420" y="120" width="300" height="200" fill="#fff9db" stroke="#868e96" stroke-width="2" opacity="1" />
+<text x="570" y="140" font-size="14" fill="#868e96" text-anchor="middle" dominant-baseline="middle" opacity="1">#ext-tile-grid (SIBLING)</text>
+<rect x="440" y="160" width="120" height="140" fill="#d0bfff" stroke="#868e96" stroke-width="1" opacity="1" />
+<text x="500" y="177.5" font-size="12" fill="#5c7cfa" text-anchor="middle" dominant-baseline="middle" opacity="1">Tile A</text>
+<rect x="450" y="195" width="100" height="90" fill="#dbe4ff" stroke="#5c7cfa" stroke-width="1" opacity="1" />
+<text x="500" y="235" font-size="10" fill="#364fc7" text-anchor="middle" dominant-baseline="middle" opacity="1">#msgInner
+(moved here)
+overflow:hidden</text>
+<rect x="580" y="160" width="120" height="140" fill="#ffec99" stroke="#868e96" stroke-width="1" opacity="1" />
+<text x="640" y="177.5" font-size="12" fill="#f08c00" text-anchor="middle" dominant-baseline="middle" opacity="1">Tile B</text>
+<rect x="590" y="195" width="100" height="90" fill="#fff3bf" stroke="#f08c00" stroke-width="1" opacity="1" />
+<text x="640" y="235" font-size="10" fill="#e67700" text-anchor="middle" dominant-baseline="middle" opacity="1">empty div
++ renderTranscript(snapshot)</text>
+<text x="402.5" y="232.5" font-size="11" fill="#e03131" text-anchor="middle" dominant-baseline="middle" opacity="1">move</text>
+<rect x="80" y="380" width="640" height="100" fill="#ffe3e3" stroke="#e03131" stroke-width="1" opacity="1" />
+<text x="400" y="430" font-size="12" fill="#c92a2a" text-anchor="middle" dominant-baseline="auto" opacity="1">PROBLEMS:
+1. #messages hidden → scrollTop, pagination, virtualization, follow/jump ALL broken
+2. #msgInner moved → Core's scroll owner can't see content geometry
+3. focusTile() never calls loadSession() → Core session state unchanged
+4. switchLayout() removes focused tile → #msgInner detached, lost forever
+5. Inactive tiles get empty placeholder instead of real snapshot</text>
+<rect x="850" y="50" width="700" height="600" fill="#ebfbee" stroke="#2f9e44" stroke-width="3" opacity="1" />
+<text x="1200" y="80" font-size="20" fill="#2f9e44" text-anchor="middle" dominant-baseline="middle" opacity="1">✅ NEW: SINGLE-LIVE-SESSION</text>
+<rect x="880" y="120" width="640" height="350" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2" opacity="1" />
+<text x="1200" y="142.5" font-size="16" fill="#2f9e44" text-anchor="middle" dominant-baseline="middle" opacity="1">#messages (VISIBLE — OWNER)</text>
+<rect x="900" y="170" width="600" height="280" fill="#b2f2bb" stroke="#2f9e44" stroke-width="1" opacity="1" />
+<text x="1200" y="190" font-size="14" fill="#2b8a3e" text-anchor="middle" dominant-baseline="middle" opacity="1">#msgInner (ALWAYS IN #messages)</text>
+<rect x="900" y="210" width="600" height="240" fill="#dbe4ff" stroke="#5c7cfa" stroke-width="2" opacity="1" stroke-dasharray="5,5"/>
+<text x="1200" y="230" font-size="12" fill="#364fc7" text-anchor="middle" dominant-baseline="middle" opacity="1">#ext-tile-grid (OVERLAY INSIDE #messages)</text>
+<rect x="920" y="260" width="280" height="170" fill="#dbe4ff" stroke="#5c7cfa" stroke-width="2" opacity="1" />
+<text x="1060" y="285" font-size="12" fill="#364fc7" text-anchor="middle" dominant-baseline="middle" opacity="1">Tile A (FOCUSED = LIVE)</text>
+<rect x="930" y="305" width="260" height="115" fill="#ffffff" stroke="#364fc7" stroke-width="1" opacity="1" />
+<text x="1060" y="360" font-size="11" fill="#1864ab" text-anchor="middle" dominant-baseline="middle" opacity="1">Shows #msgInner directly
+(transparent overlay)
+Composer: A's draft
+Model: A's model
+Stream: A's stream</text>
+<rect x="1220" y="260" width="280" height="170" fill="#fff3bf" stroke="#f08c00" stroke-width="2" opacity="1" />
+<text x="1360" y="285" font-size="12" fill="#e67700" text-anchor="middle" dominant-baseline="middle" opacity="1">Tile B (SNAPSHOT)</text>
+<rect x="1230" y="305" width="260" height="115" fill="#fff9db" stroke="#e67700" stroke-width="1" opacity="1" />
+<text x="1360" y="360" font-size="11" fill="#e67700" text-anchor="middle" dominant-baseline="middle" opacity="1">renderTranscript(snapshot)
+of B's messages
+No composer
+No live stream
+Click → loadSession(B)</text>
+<rect x="880" y="500" width="640" height="120" fill="#d3f9d8" stroke="#2f9e44" stroke-width="1" opacity="1" />
+<text x="1200" y="560" font-size="12" fill="#2b8a3e" text-anchor="middle" dominant-baseline="auto" opacity="1">BENEFITS:
+1. #messages stays visible → Core's scroll, pagination, virtualization, follow/jump ALL WORK
+2. #msgInner stays in #messages → Core's scroll owner sees content geometry
+3. focusTile() calls loadSession(tile.sid) → Core session state actually changes
+4. switchLayout() rearranges grid only → #msgInner stays put, just visual repositioning
+5. Non-focused tiles are renderTranscript snapshots → accurate historical view</text>
+<text x="800" y="342.5" font-size="11" fill="#495057" text-anchor="middle" dominant-baseline="middle" opacity="1">REWRITE</text>
+<text x="450" y="710" font-size="12" fill="#c92a2a" text-anchor="middle" dominant-baseline="middle" opacity="1">CD28A93 — physical DOM move (BROKEN)</text>
+<text x="1250" y="710" font-size="12" fill="#2b8a3e" text-anchor="middle" dominant-baseline="middle" opacity="1">Single-Live-Session (REVIEWER-ALIGNED)</text>
+</svg>
