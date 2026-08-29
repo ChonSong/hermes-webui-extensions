@@ -11,71 +11,74 @@ as static snapshots.
 
 - **Layouts** — 2-column (horizontal split), 4-corner (2×2 grid), 6-tile (3×2 grid)
 - **Session snapshots** — each tile renders a session's messages via `window.renderTranscript()`
-- **Focus switching** — click any tile to make it the active composer/model context; the outgoing tile's state is saved, the incoming tile's session is restored to the shared context
+- **Focus switching** — click any tile to make it the active composer/model context; the outgoing tile's state is saved, the incoming tile's session is loaded via `window.loadSession()`
 - **Maximize** — expand one tile to fill the entire grid; restore with one click
 - **Session restore** — click any sidebar session to load it into the next empty tile (when auto-tile is enabled)
 - **Graceful close** — cancels in-flight streaming before removing the tile
 
-## Keyboard Shortcuts
-
-| Shortcut | Layout |
-|----------|--------|
-| `Ctrl+Alt+1` | 1 tile (full width) |
-| `Ctrl+Alt+2` | 2 columns |
-| `Ctrl+Alt+4` | 4 corners (2×2) |
-| `Ctrl+Alt+6` | 6 tiles (3×2) |
-
-Press the same chord while the grid is active to dismiss it.
-
 ## How It Works
 
 ```
-Sidebar click → registerHermesSessionOpenHandler (preload phase: snapshot outgoing tile)
+Sidebar click → registerHermesSessionOpenHandler (preload phase: reserve empty tile)
                                         (loaded phase: fill tile with session data)
   → tiling extension fills next empty tile
   → tile gets its own session context (sid/messages/model)
   → only the focused tile drives the shared composer
 
 Toolbar button → showGrid(cols, rows)
-  → snapshot current session
-  → create N tile elements in #ext-tile-grid
-  → renderTranscript() renders messages in each tile
+  → create #ext-tile-grid as absolute overlay inside #messages
+  → build N tile elements (empty containers)
+  → focus first tile (transparent, shows live #msgInner beneath)
+  → non-focused tiles render renderTranscript snapshots (opaque overlay)
 ```
 
-The extension uses two stable WebUI public APIs:
+The extension uses three stable WebUI public APIs:
 
 - `window.registerHermesSessionOpenHandler(fn)` — fires on session open; routes
   clicks to empty tiles when the grid is active.
 - `window.renderTranscript(container, messages, opts)` — renders a message array
   into any container using the sanitized markdown pipeline.
+- `window.loadSession(sid)` — swaps Core's live session state when focusing a tile.
 
 ## Architecture
 
-The extension has **one shared `S`**, **one composer**, and **one live model/run
-context**. Only the focused tile can safely own it. Non-focused tiles are
-rendered snapshots — they display messages but do not drive the live context.
-This is today's Core contract; true concurrent multi-session streaming requires
-a future Core capability.
+The extension uses a **single-live-session** model: Core owns one `S` object,
+one composer, and one live model/run context. Only the focused tile can safely
+own it. Non-focused tiles are rendered snapshots — they display messages but
+do not drive the live context.
+
+Key invariants:
+- **#messages stays visible** — Core owns scroll, pagination, virtualization
+- **#msgInner stays in #messages** — never detached, never moved
+- **Grid is an overlay** — absolute-positioned inside #messages
+- **Focused tile = transparent window** — shows live #msgInner beneath
+- **Non-focused tiles = opaque snapshots** — cover #msgInner beneath
+- **focusTile() calls loadSession(tile.sid)** — actually swaps Core's session state
+- **switchLayout() rearranges grid only** — doesn't touch #msgInner
+- **hideGrid() removes overlay** — focused tile's session stays as the live session
 
 ```text
 ┌─────────────────────────────────────────────┐
 │  Toolbar (2 | 4 | 6 | ✕) in .app-titlebar   │
 ├─────────────────────────────────────────────┤
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  Tile 1  │  │  Tile 2  │  │  Tile 3  │  │
-│  │ header   │  │ header   │  │ header   │  │
-│  │ messages │  │ messages │  │ messages │  │
-│  │(snapshot)│  │(snapshot)│  │(snapshot)│  │
-│  └──────────┘  └──────────┘  └──────────┘  │
-│  ┌──────────┐  ┌──────────┐                │
-│  │  Tile 4  │  │  Tile 5  │  ← 3×2 grid   │
-│  └──────────┘  └──────────┘                │
+│  #messages (visible, Core owns scroll)      │
+│  ┌─────────────────────────────────────────┐│
+│  │ #msgInner (live session content)        ││
+│  │                                         ││
+│  ├─────────────────────────────────────────┤│
+│  │ #ext-tile-grid (absolute overlay)       ││
+│  │  ┌──────────┐  ┌──────────┐            ││
+│  │  │  Tile 1  │  │  Tile 2  │            ││
+│  │  │(focused) │  │(snapshot)│            ││
+│  │  │transparent│  │  opaque  │            ││
+│  │  └──────────┘  └──────────┘            ││
+│  └─────────────────────────────────────────┘│
 └─────────────────────────────────────────────┘
 ```
 
 Each tile holds `{ id, sid, session, messages, busy, activeStreamId, maximized, cv, mv }`.
-Switching focus snapshots the outgoing tile's state and restores the incoming tile's
-composer value + model selection.
+Switching focus calls `loadSession()` to swap Core's session, then restores the
+incoming tile's composer value + model selection.
 
 ## Settings
 

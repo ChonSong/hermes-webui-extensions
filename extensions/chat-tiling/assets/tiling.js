@@ -1,13 +1,16 @@
-// Chat Tiling — multi-session tile grid with Core-authoritative #messages
-// Stable API consumer: registerHermesSessionOpenHandler + renderTranscript
+// Chat Tiling — multi-session tile grid with overlay architecture
+// Stable API consumer: registerHermesSessionOpenHandler + renderTranscript + loadSession
 // Requires WebUI >= 2026-07.18 (the release that exposed the session-open hook)
 //
-// Architecture:
-// - #messages is Core's single scroll owner (scrollTop, pagination, virtualization)
-// - #msgInner is ONE DOM element physically moved between tiles (never ID-swapped)
-// - Inactive tiles get a new empty .ext-tile-msg-inner with renderTranscript snapshot
-// - Focused tile hosts the live #msgInner — NO renderTranscript on it
-// - On hide/close: #msgInner is restored to #messages
+// Architecture (single-live-session):
+// - #messages is Core's single scroll owner — never hidden, never mutated
+// - #msgInner stays in #messages always — never detached, never moved
+// - Grid is an absolute-positioned overlay inside #messages
+// - Focused tile = transparent window showing live #msgInner beneath
+// - Non-focused tiles = opaque renderTranscript snapshots covering #msgInner
+// - focusTile() calls loadSession(tile.sid) to swap Core's session state
+// - switchLayout() rearranges grid only — doesn't touch #msgInner
+// - hideGrid() removes overlay — focused tile's session stays as live session
 
 (function(){
   'use strict';
@@ -16,7 +19,6 @@
     tiles: [], activeId: null, visible: false, _cols: 0, _rows: 0,
     _saved: null, _savedComposer: '', _savedModel: '', _w: null,
     _watcherGeneration: 0, _closing: new Set(),
-    _msgInnerOriginalParent: null, _msgInnerOriginalNextSibling: null,
     _panelObs: null, _badgeObserver: null
   };
 
@@ -30,16 +32,19 @@
   };
 
   const EXT_CSS = `
-.ext-tile{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden}
-.ext-tile--focused{border-color:var(--accent)}
+#ext-tile-grid{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;display:grid;gap:0}
+.ext-tile{position:absolute;min-width:0;min-height:0;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.ext-tile--focused{border-color:var(--accent);background:transparent;pointer-events:auto}
+.ext-tile:not(.ext-tile--focused){background:var(--bg);pointer-events:auto}
 .ext-tile--maximized{grid-area:1/1/-1/-1!important;z-index:2}
 .ext-tile--hidden{display:none}
 .ext-tile-titlebar{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);background:var(--bg-secondary)}
+.ext-tile--focused .ext-tile-titlebar{background:transparent}
 .ext-tile-title{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:none;min-width:0}
 .ext-tile-btn{background:none;border:1px solid transparent;border-radius:6px;color:var(--text);cursor:pointer;padding:2px;display:flex;align-items:center;justify-content:center;line-height:1;opacity:.7;transition:opacity .15s}
 .ext-tile-btn:hover{opacity:1;background:var(--bg-hover)}
 .ext-tile-btn-sq{width:24px;height:24px}
-.ext-tile-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.ext-tile-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
 .ext-tile-msg-inner{flex:1;min-height:0;padding:0;display:flex;flex-direction:column}
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;font-size:10px;font-weight:700;line-height:16px;color:var(--bg);background:var(--accent)}
 .ext-tile--focused .ext-tile-sidebar-badge{display:none}
@@ -132,55 +137,10 @@
     });
   }
 
-  // ── Move #msgInner physically between tiles (preserves Core DOM) ──
-  function moveMsgInnerTo(tile){
-    const msgInner=document.getElementById('msgInner');
-    if(!msgInner)return;
-    const target=tile.el&&tile.el.querySelector('.ext-tile-body');
-    if(!target)return;
-    // Append #msgInner to the tile body
-    target.appendChild(msgInner);
-  }
-
-  // ── Restore #msgInner to its original parent in #messages ──
-  function restoreMsgInner(){
-    const msgInner=document.getElementById('msgInner');
-    if(!msgInner)return;
-    if(T._msgInnerOriginalParent){
-      if(T._msgInnerOriginalNextSibling){
-        T._msgInnerOriginalParent.insertBefore(msgInner,T._msgInnerOriginalNextSibling);
-      } else {
-        T._msgInnerOriginalParent.appendChild(msgInner);
-      }
-    }else{
-      const messages=document.getElementById('messages');
-      if(messages)messages.appendChild(msgInner);
-    }
-  }
-
-  // ── Create an empty msg-inner placeholder for snapshot rendering ──
-  function createEmptyMsgInner(tile){
-    const el=tile.el;
-    if(!el)return null;
-    const body=el.querySelector('.ext-tile-body');
-    if(!body)return null;
-    // Remove any existing empty placeholders
-    body.querySelectorAll('.ext-tile-msg-inner').forEach(mi=>{
-      if(mi.id!=='msgInner')mi.remove();
-    });
-    const newMi=document.createElement('div');
-    newMi.className='ext-tile-msg-inner';
-    body.appendChild(newMi);
-    return newMi;
-  }
-
+  // ── Render snapshot into a tile's body ──
   function renderSnapshot(t){
     if(!t.el)return;
-    const msgInners=t.el.querySelectorAll('.ext-tile-msg-inner');
-    let mi=null;
-    for(const m of msgInners){
-      if(m.id!=='msgInner'){mi=m;break;}
-    }
+    const mi=t.el.querySelector('.ext-tile-msg-inner');
     if(!mi)return;
     if(typeof window.renderTranscript==='function'){
       window.renderTranscript(mi,t.messages||[],{skipEmpty:false});
@@ -218,13 +178,15 @@
   function applyLayout(cols,rows){
     const grid=document.getElementById('ext-tile-grid');
     if(!grid)return;
-    if(cols===1&&rows===1){
-      grid.style.gridTemplateColumns='1fr';
-      grid.style.gridTemplateRows='1fr';
-    }else{
-      grid.style.gridTemplateColumns=`repeat(${cols},1fr)`;
-      grid.style.gridTemplateRows=`repeat(${rows},1fr)`;
-    }
+    grid.style.gridTemplateColumns=cols===1?'1fr':`repeat(${cols},1fr)`;
+    grid.style.gridTemplateRows=rows===1?'1fr':`repeat(${rows},1fr)`;
+    // Position tiles using grid placement
+    T.tiles.forEach((t,i)=>{
+      if(!t.el)return;
+      const row=Math.floor(i/cols);
+      const col=i%cols;
+      t.el.style.gridArea=`${row+1}/${col+1}`;
+    });
   }
 
   function refreshTileGrid(){
@@ -268,7 +230,7 @@
     return T.tiles.find(t=>t._pendingSid===sid&&t._pending);
   }
 
-  // ── Focus switching ──
+  // ── Focus switching — calls loadSession() to swap Core session ──
   async function focusTile(id,opts){
     opts=opts||{};
     const tile=tid(id);
@@ -277,23 +239,47 @@
     const outgoing=at();
     if(outgoing)sc(outgoing);
 
-    // Set activeId BEFORE rendering so snapshot goes to the unfocused tile
+    // Set activeId BEFORE visual update
     T.activeId=id;
-    T.tiles.forEach(t=>{if(t.el)t.el.classList.toggle('ext-tile--focused',t.id===id);});
+
+    // If tile has a session, swap Core's session via loadSession
+    if(tile.sid&&typeof window.loadSession==='function'){
+      try{
+        await window.loadSession(tile.sid);
+      }catch(e){
+        // Roll back to outgoing session on failure
+        if(outgoing&&outgoing.sid){
+          try{await window.loadSession(outgoing.sid);}catch(_){}
+        }
+        return;
+      }
+    }
+
+    // Optimistic update of S.session (loadSession should have updated it)
+    const s=getS();
+    if(s&&tile.session){
+      s.session=tile.session;
+      s.messages=tile.messages||[];
+      s.busy=tile.busy;
+      s.activeStreamId=tile.activeStreamId;
+    }
+
+    // Update tile classes: focused = transparent, others = opaque with snapshot
+    T.tiles.forEach(t=>{
+      if(!t.el)return;
+      const isFocused=t.id===id;
+      t.el.classList.toggle('ext-tile--focused',isFocused);
+      if(!isFocused){
+        renderSnapshot(t);
+      }
+    });
+
     if(tile.el){
       tile.el.focus();
       tile.el.setAttribute('aria-label',`Chat tile ${id} — focused`);
     }
 
-    if(outgoing&&outgoing.id!==id){
-      moveMsgInnerTo(tile);
-      rc(tile);
-      createEmptyMsgInner(outgoing);
-      renderSnapshot(outgoing);
-    }else{
-      moveMsgInnerTo(tile);
-      rc(tile);
-    }
+    rc(tile);
     startWatcher();
     if(typeof window.syncTopbar==='function')window.syncTopbar();
     if(typeof window.syncModelChip==='function')window.syncModelChip();
@@ -317,12 +303,6 @@
         T._closing.delete(id);
         return;
       }
-    }
-
-    // If this tile has #msgInner, restore it before removing
-    if(tile.el){
-      const mi=tile.el.querySelector('#msgInner');
-      if(mi)restoreMsgInner();
     }
 
     // Remove from state
@@ -355,36 +335,40 @@
     if(!T.visible)return;
     T.visible=false;
     stopWatcher();
-    // Restore #msgInner to #messages
-    restoreMsgInner();
-    // Show #messages
-    const messages=document.getElementById('messages');
-    if(messages)messages.style.display='';
-    // Hide grid
-    const grid=document.getElementById('ext-tile-grid');
-    if(grid)grid.classList.remove('ext-tile-grid--active');
-    // Remove all tiles
-    T.tiles.forEach(t=>{if(t.el)t.el.remove();});
-    T.tiles=[];
-    T.activeId=null;
-    // Reset S to the saved session
-    if(T._saved){
+
+    // Restore focused tile's session as the live session
+    const focused=at();
+    if(focused&&focused.session){
       const s=getS();
       if(s){
-        s.session=T._saved.session;
-        s.messages=T._saved.messages;
-        s.busy=T._saved.busy;
-        s.activeStreamId=T._saved.activeStreamId;
+        s.session=focused.session;
+        s.messages=focused.messages||[];
+        s.busy=focused.busy;
+        s.activeStreamId=focused.activeStreamId||null;
       }
       if(typeof window.renderMessages==='function')window.renderMessages();
-      T._saved=null;
     }
-    // Restore composer
+
+    // Remove the overlay grid
+    const grid=document.getElementById('ext-tile-grid');
+    if(grid)grid.remove();
+
+    // Reset state
+    T.tiles=[];
+    T.activeId=null;
+
+    // Restore focused tile's composer/model
     const composer=document.getElementById('msg');
     if(composer){
-      composer.value=T._savedComposer||'';
+      composer.value=focused?focused.cv:'';
       if(typeof window.autoResize==='function')window.autoResize();
     }
+    const modelSelect=document.getElementById('modelSelect');
+    if(modelSelect&&focused&&focused.mv)modelSelect.value=focused.mv;
+
+    T._saved=null;
+    T._savedComposer='';
+    T._savedModel='';
   }
 
   function startWatcher(){
@@ -414,7 +398,7 @@
     if(T.visible){await switchLayout(cols,rows);return;}
     T._cols=cols;T._rows=rows;T.visible=true;
 
-    // Save current Core state
+    // Save current Core state (for rollback if needed)
     const s=getS();
     if(s){
       T._saved={
@@ -430,29 +414,17 @@
     const modelSelect=document.getElementById('modelSelect');
     if(modelSelect)T._savedModel=modelSelect.value;
 
-    // Hide Core's #messages
+    // Create grid as absolute overlay inside #messages (not hiding #messages)
     const messages=document.getElementById('messages');
-    if(messages)messages.style.display='none';
-
-    // Save #msgInner's original position
-    const msgInner=document.getElementById('msgInner');
-    if(msgInner){
-      T._msgInnerOriginalParent=msgInner.parentNode;
-      T._msgInnerOriginalNextSibling=msgInner.nextSibling;
-    }
-
-    // Create grid
     let grid=document.getElementById('ext-tile-grid');
     if(!grid){
       grid=document.createElement('div');
       grid.id='ext-tile-grid';
-      if(messages&&messages.parentNode){
-        messages.parentNode.insertBefore(grid,messages.nextSibling);
-      }else{
-        document.body.appendChild(grid);
-      }
     }
-    grid.classList.add('ext-tile-grid--active');
+    // Ensure grid is inside #messages
+    if(messages&&grid.parentElement!==messages){
+      messages.appendChild(grid);
+    }
     applyLayout(cols,rows);
 
     // Build tiles
@@ -462,49 +434,18 @@
     }
     refreshTileGrid();
 
-    // Focus first tile — move #msgInner to it
+    // Focus first tile
     if(T.tiles.length>0){
       await focusTile(T.tiles[0].id);
-    }
-
-    // Apply any pending session to first tile if Core already has one
-    if(s&&s.session&&T.tiles.length>0){
-      const t=T.tiles[0];
-      t.sid=s.session.session_id;
-      t.session=s.session;
-      t.messages=[...(s.messages||[])];
-      t.busy=!!s.busy;
-      t.activeStreamId=s.activeStreamId||null;
-      updateHeader(t);
     }
   }
 
   async function switchLayout(cols,rows){
-    const oldTiles=[...T.tiles];
-    T.tiles.forEach(t=>{if(t.el)t.el.remove();});
-    T.tiles=[];
     T._cols=cols;T._rows=rows;
     const grid=document.getElementById('ext-tile-grid');
     if(grid)applyLayout(cols,rows);
-    const total=cols*rows;
-    for(let i=0;i<total;i++){
-      const t=buildTile(i+1);
-      if(oldTiles[i]){
-        t.sid=oldTiles[i].sid;
-        t.session=oldTiles[i].session;
-        t.messages=oldTiles[i].messages;
-        t.busy=oldTiles[i].busy;
-        t.activeStreamId=oldTiles[i].activeStreamId;
-        t.cv=oldTiles[i].cv;
-        t.mv=oldTiles[i].mv;
-        updateHeader(t);
-      }
-    }
+    // Reposition existing tiles — no DOM rebuild needed
     refreshTileGrid();
-    if(T.tiles.length>0){
-      const focused=oldTiles.find(t=>t.id===T.activeId);
-      await focusTile(focused?focused.id:T.tiles[0].id);
-    }
   }
 
   // ── Session-open handler (two-phase: preload → loaded) ──
@@ -537,14 +478,9 @@
       // Loaded: Core has loaded the session. Route to the reserved tile.
       if(!gs('auto_tile',true))return {}; // auto_tile disabled — don't tile
       let t=findPendingTile(sid);
-      if(!t){
-        t=findEmptyTile();
-        if(!t)return {}; // No slot available — ignore
-      }
-      // If the pending slot was already reused by another session, ignore
-      if(t._pending&&t._pendingSid!==sid)return {};
+      if(!t)return {}; // No pending reservation for this session — ignore
       if(t.sid&&t.sid!==sid)return {}; // Already has a different session
-      
+
       const isNew=!t.sid;
       t._pending=false;
       t._pendingSid=null;
@@ -555,7 +491,7 @@
       t.activeStreamId=null;
       updateHeader(t);
       if(isNew&&T.tiles.length>1){
-        focusTile(t.id,{alreadyLoaded:true});
+        focusTile(t.id);
       }
       updateBadgeCounts();
       return {};
