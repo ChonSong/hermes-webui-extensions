@@ -50,6 +50,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install test dependencies
+        run: npm ci
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -94,6 +97,9 @@ jobs:
 
       - name: Scan extension safety gates
         run: node scripts/scan-extension-safety.mjs
+
+      - name: Test Chat Tiling
+        run: node scripts/test-chat-tiling.mjs
 
       - name: Check sidecar scaffold is in sync
         run: node scripts/sync-sidecar-base.mjs --check
