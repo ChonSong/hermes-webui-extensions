@@ -330,22 +330,18 @@
     T.visible=false;
     stopWatcher();
 
-    // Restore focused tile's session as the live session
-    const focused=at();
-    if(focused&&focused.session){
-      const s=getS();
-      if(s){
-        s.session=focused.session;
-        s.messages=focused.messages||[];
-        s.busy=focused.busy;
-        s.activeStreamId=focused.activeStreamId||null;
-      }
-      if(typeof window.renderMessages==='function')window.renderMessages();
-    }
+    // Core already has the focused tile's session loaded (it was the last one focused).
+    // No need to write tile cache over Core's current S — that would republish stale state.
+    // Just remove the overlay and let Core's current S stand.
 
     // Remove the overlay grid
     const grid=document.getElementById('ext-tile-grid');
     if(grid)grid.remove();
+
+    // Capture focused tile's composer/model before resetting state
+    const focused=at();
+    const focusedCv = focused ? focused.cv : '';
+    const focusedMv = focused ? focused.mv : '';
 
     // Reset state
     T.tiles=[];
@@ -354,11 +350,11 @@
     // Restore focused tile's composer/model
     const composer=document.getElementById('msg');
     if(composer){
-      composer.value=focused?focused.cv:'';
+      composer.value=focusedCv;
       if(typeof window.autoResize==='function')window.autoResize();
     }
     const modelSelect=document.getElementById('modelSelect');
-    if(modelSelect&&focused&&focused.mv)modelSelect.value=focused.mv;
+    if(modelSelect&&focusedMv)modelSelect.value=focusedMv;
 
     T._saved=null;
     T._savedComposer='';
@@ -505,7 +501,8 @@
       t.activeStreamId=null;
       updateHeader(t);
       if(isNew&&T.tiles.length>1){
-        focusTile(t.id);
+        // Core already loaded this session (loaded hook). Skip redundant loadSession.
+        focusTile(t.id, { alreadyLoaded: true });
       }
       updateBadgeCounts();
       return {};
