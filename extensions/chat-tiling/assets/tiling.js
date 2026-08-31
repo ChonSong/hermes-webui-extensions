@@ -18,7 +18,7 @@
   const T = {
     tiles: [], activeId: null, visible: false, _cols: 0, _rows: 0,
     _saved: null, _savedComposer: '', _savedModel: '', _w: null,
-    _watcherGeneration: 0, _closing: new Set(),
+    _watcherGeneration: 0, _focusGen: 0, _closing: new Set(),
     _panelObs: null, _badgeObserver: null
   };
 
@@ -35,6 +35,7 @@
 #ext-tile-grid{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;display:grid;gap:0}
 .ext-tile{position:absolute;min-width:0;min-height:0;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
 .ext-tile--focused{border-color:var(--accent);background:transparent;pointer-events:none}
+.ext-tile--focused .ext-tile-msg-inner{display:none}
 .ext-tile--focused .ext-tile-titlebar{pointer-events:auto}
 .ext-tile:not(.ext-tile--focused){background:var(--bg);pointer-events:auto}
 .ext-tile--maximized{grid-area:1/1/-1/-1!important;z-index:2}
@@ -237,6 +238,9 @@
     const tile=tid(id);
     if(!tile)return;
     if(T.activeId===id)return;
+    // Capture focus generation — bail if a newer focus supersedes us
+    T._focusGen++;
+    const myGen=T._focusGen;
     const outgoing=at();
     if(outgoing)sc(outgoing);
 
@@ -253,6 +257,8 @@
         }
         return;
       }
+      // After await, check if a newer focus superseded us
+      if(myGen!==T._focusGen)return;
     }
 
     // Set activeId AFTER loadSession succeeds (Finding 4: no authority split on failure)
@@ -424,6 +430,20 @@
     }
     refreshTileGrid();
 
+    // Seed tile 1 from captured live session state (Finding 1: activation seeding)
+    const curS=getS();
+    if(T.tiles.length>0&&curS&&curS.session){
+      const t0=T.tiles[0];
+      t0.sid=curS.session.session_id;
+      t0.session=curS.session;
+      t0.messages=curS.messages||[];
+      t0.busy=!!curS.busy;
+      t0.activeStreamId=curS.activeStreamId||null;
+      t0.cv=T._savedComposer;
+      t0.mv=T._savedModel;
+      updateHeader(t0);
+    }
+
     // Focus first tile
     if(T.tiles.length>0){
       await focusTile(T.tiles[0].id);
@@ -437,20 +457,44 @@
 
     const newTotal=cols*rows;
     if(newTotal!==T.tiles.length){
-      // Cardinality changed — rebuild tiles
-      // Remove existing tile elements from DOM
-      T.tiles.forEach(t=>{if(t.el)t.el.remove();});
-      // Rebuild tile array with new count
-      T.tiles=[];
-      for(let i=0;i<newTotal;i++){
-        buildTile(i+1);
+      // Cardinality changed — preserve existing tile authority (Finding 4)
+      const oldTiles=T.tiles;
+      const oldActiveId=T.activeId;
+      const oldActiveTile=oldActiveId?oldTiles.find(t=>t.id===oldActiveId):null;
+
+      // Cancel busy streams for tiles that will be removed (beyond new count)
+      const removedTiles=oldTiles.slice(newTotal);
+      for(const rt of removedTiles){
+        if(rt.busy&&rt.activeStreamId){
+          try{await window.cancelSessionStream({streamId:rt.activeStreamId,sessionId:rt.sid});}catch(_){}
+        }
+        if(rt.el)rt.el.remove();
       }
+
+      // Keep tiles up to new count (preserve their authority)
+      T.tiles=oldTiles.slice(0,newTotal);
+
+      // Build new empty tiles for any expansion
+      const maxId=oldTiles.length>0?Math.max(...oldTiles.map(t=>t.id)):0;
+      for(let i=oldTiles.length;i<newTotal;i++){
+        buildTile(maxId+i-oldTiles.length+1);
+      }
+
       // Re-append to grid
       T.tiles.forEach(t=>{if(grid&&t.el)grid.appendChild(t.el);});
       refreshTileGrid();
-      // Focus first tile
-      if(T.tiles.length>0){
-        await focusTile(T.tiles[0].id);
+
+      // Restore activeId to the same tile object if it still exists
+      if(oldActiveTile&&T.tiles.includes(oldActiveTile)){
+        T.activeId=oldActiveTile.id;
+        // Only call focusTile on a tile with a session
+        if(oldActiveTile.sid){
+          await focusTile(oldActiveTile.id);
+        }
+      }else if(T.tiles.length>0){
+        // Old active tile was removed — focus first tile with a session, or just first tile
+        const withSession=T.tiles.find(t=>t.sid);
+        await focusTile((withSession||T.tiles[0]).id);
       }
     }else{
       // Same cardinality — just reposition existing tiles

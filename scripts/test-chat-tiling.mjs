@@ -338,12 +338,12 @@ async function main() {
     assert(h.window.S.session.session_id === 'sid-B', 'B session restored on hide');
   }
 
-  // S15: Late loaded(B) after slot reuse by C is ignored (1-tile grid forces reuse)
+  // S15: Late loaded(B) after slot reuse by C is ignored
   section('S15: Late loaded(B) after slot reuse by C is ignored');
   {
     const h = createFreshDom();
     setSession(h, 'sid-A', 'Session A', ['a']);
-    h.window.showGridExt(1, 1);
+    h.window.showGridExt(2, 1);
     await settle();
     h.window.handlerRegistration('sid-B', null, { preload: true });
     h.window.handlerRegistration('sid-C', null, { preload: true });
