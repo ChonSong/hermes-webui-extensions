@@ -19,7 +19,8 @@
     tiles: [], activeId: null, visible: false, _cols: 0, _rows: 0,
     _saved: null, _savedComposer: '', _savedModel: '', _w: null,
     _watcherGeneration: 0, _focusGen: 0, _closing: new Set(),
-    _panelObs: null, _badgeObserver: null
+    _panelObs: null, _badgeObserver: null,
+    _focusOp: Promise.resolve()
   };
 
   const SVG_ICON = {
@@ -233,7 +234,18 @@
   }
 
   // ── Focus switching — calls loadSession() to swap Core session ──
-  async function focusTile(id,opts){
+  // Serialized through _focusOp so a newer focus waits for any in-flight
+  // rollback to finish before starting. This prevents the schedule where
+  // B's rollback(A) settles after C and overwrites C's canonical session.
+  function focusTile(id,opts){
+    opts=opts||{};
+    const chained=T._focusOp.then(()=>_focusTileImpl(id,opts));
+    // Track the latest op; failures are swallowed so the chain continues
+    T._focusOp=chained.catch(()=>{});
+    return chained;
+  }
+
+  async function _focusTileImpl(id,opts){
     opts=opts||{};
     const tile=tid(id);
     if(!tile)return;
@@ -344,6 +356,11 @@
     T.visible=false;
     stopWatcher();
 
+    // Await any in-flight focus so a late loadSession can't settle after hide.
+    // (Without this, a pending loadSession(B) could update S.session after hide
+    // leaves the overlay removed.)
+    await T._focusOp;
+
     // Invalidate any pending focus so a late focus success/failure is a no-op
     T._focusGen++;
 
@@ -451,6 +468,11 @@
   }
 
   async function switchLayout(cols,rows){
+    // Capture old geometry BEFORE any mutation (Issue 3 fix)
+    const oldCols=T._cols;
+    const oldRows=T._rows;
+    const oldGrid=document.getElementById('ext-tile-grid');
+
     T._cols=cols;T._rows=rows;
     const grid=document.getElementById('ext-tile-grid');
     if(grid)applyLayout(cols,rows);
@@ -469,15 +491,45 @@
       // If any refuse, abort the entire layout change.
       const busyRemoved=removedTiles.filter(t=>t.busy&&t.activeStreamId);
       if(busyRemoved.length>0){
-        const results=await Promise.all(busyRemoved.map(t=>window.cancelSessionStream({streamId:t.activeStreamId,sessionId:t.sid})));
-        if(results.some(r=>!r)){
-          // Cancellation refused — abort layout change, restore previous grid
-          if(grid)applyLayout(T._cols,T._rows);
+        // Issue 3 fix: use allSettled so a thrown cancellation doesn't reject
+        // the whole switchLayout after publishing new dimensions.
+        const settled=await Promise.allSettled(busyRemoved.map(t=>window.cancelSessionStream({streamId:t.activeStreamId,sessionId:t.sid})));
+        const anyRefused=settled.some(s=>s.status==='rejected'||(s.status==='fulfilled'&&s.value===false));
+        if(anyRefused){
+          // Cancellation refused — abort layout change, restore previous geometry
+          T._cols=oldCols;
+          T._rows=oldRows;
+          if(oldGrid)applyLayout(oldCols,oldRows);
           return;
         }
       }
 
-      // All excess tiles cleared — remove them
+      // Issue 4 fix: settle successor focus BEFORE committing removal.
+      // If the active tile is among removed tiles, we must first focus a
+      // surviving tile. If that focus fails (loadSession rejects), keep the
+      // old layout intact.
+      let newActiveId=null;
+      if(oldActiveTile&&!survivingTiles.includes(oldActiveTile)){
+        // Active tile is being removed — find a surviving successor
+        const successor=survivingTiles.find(t=>t.sid)||survivingTiles[0];
+        if(successor){
+          const prevActiveId=T.activeId;
+          await focusTile(successor.id);
+          // Check if focus actually settled on the successor (it may have
+          // rolled back on loadSession failure)
+          if(T.activeId===successor.id){
+            newActiveId=successor.id;
+          }else{
+            // Successor focus failed — abort layout change
+            T._cols=oldCols;
+            T._rows=oldRows;
+            if(oldGrid)applyLayout(oldCols,oldRows);
+            return;
+          }
+        }
+      }
+
+      // All excess tiles cleared and successor focus settled — remove them
       for(const rt of removedTiles){
         if(rt.el)rt.el.remove();
       }
@@ -502,6 +554,9 @@
         if(oldActiveTile.sid){
           await focusTile(oldActiveTile.id);
         }
+      }else if(newActiveId!==null){
+        // Active tile was removed, successor already focused above
+        T.activeId=newActiveId;
       }else if(T.tiles.length>0){
         // Old active tile was removed — focus first tile with a session, or just first tile
         const withSession=T.tiles.find(t=>t.sid);
