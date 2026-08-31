@@ -131,6 +131,20 @@ def _boot_page(page: Any, base_url: str) -> None:
     except Exception:
         pass
     page.wait_for_timeout(1_000)
+    # Fix 1: Wait for Core to boot into chat state so panel-gating shows toolbar.
+    # The panel gating (initPanelGating) hides toolbar when main.main doesn't have
+    # class 'chat'. Core boots into chat state on load at '/'.
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    try:
+        page.wait_for_selector(
+            "main.main.chat",
+            state="attached",
+            timeout=ENTRY_TIMEOUT_MS,
+        )
+    except PlaywrightTimeoutError:
+        raise CompatibilityFailure(
+            "chat-tiling: main.main never got 'chat' class — panel gating will hide toolbar"
+        )
 
 
 def _wait_for_extension_resource(page: Any, base_url: str) -> None:
@@ -275,66 +289,84 @@ def _test_messages_scrolls_with_overlay(
 
     The overlay (``#ext-tile-grid``) is ``pointer-events: none`` and covers
     ``#messages`` absolutely.  A wheel event on the overlay must propagate to
-    ``#messages`` and scroll it.  We assert by dispatching a wheel event on
-    the grid and checking that ``#messages`` scrollTop changes (or that the
-    grid does not capture the wheel because it has pointer-events: none).
+    ``#messages`` and scroll it.
+
+    Fix 2: Use Playwright's page.mouse.wheel() over the live region and require
+    actual scrollHeight > clientHeight plus changed scrollTop. The real Core
+    session should have content, making #messages scrollable.
     """
     case_name = "messages-scrolls-with-overlay"
 
-    # Record initial scrollTop.
-    initial_scroll = page.evaluate(
-        """() => {
-          const m = document.getElementById('messages');
-          return m ? m.scrollTop : null;
-        }"""
-    )
-
-    # Dispatch a wheel event on the tile grid (which overlays #messages).
+    # Ensure there's enough content in #messages to be scrollable
     page.evaluate(
         """() => {
-          const grid = document.getElementById('ext-tile-grid');
-          if (!grid) return;
-          const evt = new WheelEvent('wheel', {
-            deltaY: 300,
-            bubbles: true,
-            cancelable: true,
-            clientX: window.innerWidth / 2,
-            clientY: window.innerHeight / 2,
-          });
-          grid.dispatchEvent(evt);
+          const m = document.getElementById('messages');
+          if (!m) return;
+          // Add enough content to make #messages scrollable
+          for (let i = 0; i < 50; i++) {
+            const d = document.createElement('div');
+            d.textContent = 'scroll filler line ' + i;
+            d.style.minHeight = '40px';
+            m.appendChild(d);
+          }
         }"""
     )
 
-    page.wait_for_timeout(300)
+    # Record initial scroll state.
+    initial = page.evaluate(
+        """() => {
+          const m = document.getElementById('messages');
+          return m ? { scrollTop: m.scrollTop, scrollHeight: m.scrollHeight, clientHeight: m.clientHeight } : null;
+        }"""
+    )
 
-    # Check scrollTop changed OR the grid has pointer-events: none (so the
-    # event would pass through to #messages natively).  Either is acceptable
-    # for the contract: the user can scroll #messages with the overlay up.
+    if initial is None:
+        raise CompatibilityFailure(f"{case_name}: #messages not found")
+
+    # Check if scrollable
+    scrollable = initial["scrollHeight"] > initial["clientHeight"]
+    if not scrollable:
+        _record_screenshot(page, evidence_dir / f"{case_name}.png")
+        raise CompatibilityFailure(
+            f"{case_name}: #messages not scrollable (scrollHeight={initial['scrollHeight']}, clientHeight={initial['clientHeight']})"
+        )
+
+    # Use Playwright's real mouse wheel over #messages center
+    messages_box = page.locator(MESSAGES_SELECTOR).bounding_box()
+    if messages_box is None:
+        raise CompatibilityFailure(f"{case_name}: could not get bounding box of #messages")
+
+    wheel_x = messages_box["x"] + messages_box["width"] / 2
+    wheel_y = messages_box["y"] + messages_box["height"] / 2
+
+    # Move mouse to center of #messages and scroll down
+    page.mouse.move(wheel_x, wheel_y)
+    page.mouse.wheel(0, 500)
+    page.wait_for_timeout(500)
+
+    # Check scrollTop actually changed
     after = page.evaluate(
         """() => {
           const m = document.getElementById('messages');
-          const grid = document.getElementById('ext-tile-grid');
-          const gridPe = grid ? getComputedStyle(grid).pointerEvents : null;
-          return {
-            scrollTop: m ? m.scrollTop : null,
-            gridPointerEvents: gridPe,
-          };
+          return m ? { scrollTop: m.scrollTop, scrollHeight: m.scrollHeight, clientHeight: m.clientHeight } : null;
         }"""
     )
 
     scroll_changed = (
-        initial_scroll is not None
-        and after.get("scrollTop") is not None
-        and after["scrollTop"] != initial_scroll
+        after is not None
+        and after["scrollTop"] != initial["scrollTop"]
     )
-    grid_passes_through = after.get("gridPointerEvents") == "none"
 
-    if not scroll_changed and not grid_passes_through:
+    if not scroll_changed:
         _record_screenshot(page, evidence_dir / f"{case_name}.png")
         raise CompatibilityFailure(
-            f"{case_name}: #messages did not scroll and grid does not pass "
-            f"pointer-events through (after={after})"
+            f"{case_name}: #messages did not scroll after page.mouse.wheel() "
+            f"(initial={initial}, after={after})"
         )
+
+    # After this point, `after` is guaranteed non-None (scroll_changed is True).
+    after_scroll = after["scrollTop"]
+    initial_scroll = initial["scrollTop"]
 
     _record_screenshot(page, evidence_dir / f"{case_name}.png")
     _assert_browser_health(
@@ -347,7 +379,8 @@ def _test_messages_scrolls_with_overlay(
     return {
         "status": "passed",
         "scroll_changed": scroll_changed,
-        "grid_pointer_events_pass_through": grid_passes_through,
+        "scroll_top_delta": after["scrollTop"] - initial["scrollTop"],
+        "scrollable": scrollable,
     }
 
 
@@ -365,8 +398,10 @@ def _test_failed_focus_rollback(
 ) -> dict[str, Any]:
     """When loadSession rejects, focusTile rolls back and state is clean.
 
-    We seed tile 2 with a session whose loadSession call we make reject via
-    a JS hook.  After attempting to focus tile 2, we assert:
+    We seed tile 1 with a real session through the session-open handler path
+    (preload + loaded hook) so it has valid authority. Then we seed tile 2
+    with a session whose loadSession call we make reject via a JS hook.
+    After attempting to focus tile 2, we assert:
     - activeId is still tile 1 (rollback)
     - tile 1 has the focused class
     - tile 2 does NOT have the focused class
@@ -389,10 +424,32 @@ def _test_failed_focus_rollback(
 
     tile1_id, tile2_id = tile_ids[0], tile_ids[1]
 
-    # Seed tile 2 with a session and make loadSession reject for it.
+    # Fix 3: Seed tile 1 through the real session-open handler path so it has
+    # valid authority (sid + session). This ensures the rollback path in
+    # focusTile can actually call loadSession(outgoing.sid) to restore.
+    seed_result = page.evaluate(
+        """(tile1Id) => {
+          const T = window.chatTilingState;
+          if (!T) return false;
+          const tile1 = T.tiles.find(t => t.id === tile1Id);
+          if (!tile1) return false;
+          // Seed through the real session-open handler path (preload + loaded)
+          if (typeof window.handlerRegistration !== 'function') return false;
+          window.handlerRegistration('rollback-session-a', null, { preload: true });
+          window.handlerRegistration('rollback-session-a', { session_id: 'rollback-session-a', title: 'Session A' }, { loaded: true });
+          return true;
+        }""",
+        tile1_id,
+    )
+
+    if not seed_result:
+        raise CompatibilityFailure(
+            f"{case_name}: failed to seed tile 1 through handler path"
+        )
+
+    # Now seed tile 2 with a session that will fail to load.
     page.evaluate(
         """(tile2Id) => {
-          // Find the extension's internal tile state via the test hook.
           const T = window.chatTilingState;
           if (!T) return false;
           const tile2 = T.tiles.find(t => t.id === tile2Id);

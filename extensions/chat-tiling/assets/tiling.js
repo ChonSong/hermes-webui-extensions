@@ -645,4 +645,5 @@
   window.closeTileExt=closeTile;
   window.closeAllExt=closeAll;
   window.chatTilingState=T;
+  window.updateBadgeCounts=updateBadgeCounts;
 })();

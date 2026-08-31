@@ -521,49 +521,35 @@ async function main() {
 
     const sessionList = h.document.querySelector('.session-list');
     if (sessionList) {
-      // Verify the extension created its own observer on .session-list
-      assert(!!h.window.chatTilingState._badgeObserver, 'extension created _badgeObserver on session-list');
+      // Fix: Verify the extension created its actual T._badgeObserver on .session-list
+      const badgeObserver = h.window.chatTilingState._badgeObserver;
+      assert(!!badgeObserver, 'extension created _badgeObserver on session-list');
+      assert(badgeObserver instanceof h.window.MutationObserver, '_badgeObserver is a MutationObserver');
+      assert(typeof badgeObserver.disconnect === 'function', '_badgeObserver has disconnect method');
+      assert(typeof badgeObserver.observe === 'function', '_badgeObserver has observe method');
 
-      // Disconnect observer to prevent JSDOM infinite loop issue
-      // (updateBadgeCounts creates DOM mutations that would re-trigger the observer)
-      h.window.chatTilingState._badgeObserver.disconnect();
-
-      // Before updateBadgeCounts, no badge should exist
       const existingRow = sessionList.querySelector('.session-item[data-sid="existing-1"]');
-      const badge = existingRow ? existingRow.querySelector('.ext-tile-sidebar-badge') : null;
-      assert(badge === null, 'no badge before updateBadgeCounts');
+      assert(existingRow !== null, 'existing-1 session row exists');
 
-      // Simulate what the extension's observer callback does:
-      // 1. Disconnect observer
-      // 2. Call updateBadgeCounts (creates badge DOM mutations)
-      // 3. Reconnect observer
-      //
-      // We simulate this manually because triggering the actual observer
-      // causes an infinite loop in JSDOM (badge creation triggers observer again)
+      // Before any mutation, no badge should exist (observer hasn't fired yet)
+      const badgeBefore = existingRow.querySelector('.ext-tile-sidebar-badge');
+      assert(badgeBefore === null, 'no badge before observer fires');
 
-      // Step 1: Disconnect (already done above)
+      // Disconnect the observer to test updateBadgeCounts in isolation
+      // (prevents infinite loop in JSDOM from observer re-triggering on badge DOM mutations)
+      badgeObserver.disconnect();
 
-      // Step 2: Simulate updateBadgeCounts logic for the busy tile
-      const count = h.window.chatTilingState.tiles.filter(t => t.sid === 'existing-1' && t.busy).length;
-      if (count > 0) {
-        const badgeEl = h.document.createElement('span');
-        badgeEl.className = 'ext-tile-sidebar-badge';
-        badgeEl.textContent = count;
-        const titleEl = existingRow.querySelector('.session-item-title');
-        if (titleEl && titleEl.parentNode === existingRow) {
-          titleEl.parentNode.insertBefore(badgeEl, titleEl.nextSibling);
-        } else {
-          existingRow.appendChild(badgeEl);
-        }
-      }
+      // Test that updateBadgeCounts works correctly when called directly.
+      // This is what the extension's observer callback does internally:
+      //   1. disconnect() — already done above
+      //   2. updateBadgeCounts() — creates badge DOM mutations
+      //   3. observe() — reconnect (we skip this to prevent JSDOM infinite loop)
+      h.window.updateBadgeCounts();
 
-      // Step 3: Verify badge was created (proving updateBadgeCounts logic works)
+      // After updateBadgeCounts, a badge should appear on the busy session row
       const badgeAfter = existingRow.querySelector('.ext-tile-sidebar-badge');
-      assert(badgeAfter !== null, 'badge appears on busy session row after sidebar mutation');
+      assert(badgeAfter !== null, 'badge appears on busy session row after updateBadgeCounts');
       assert(badgeAfter && badgeAfter.textContent === '1', 'badge shows correct busy count (1)');
-
-      // Step 4: Reconnect observer (as the extension callback would)
-      h.window.chatTilingState._badgeObserver.observe(sessionList, {childList: true, subtree: true});
     } else {
       assert(true, 'no session-list fixture (skip)');
     }
