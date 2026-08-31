@@ -240,15 +240,14 @@
     const outgoing=at();
     if(outgoing)sc(outgoing);
 
-    // Set activeId BEFORE visual update
-    T.activeId=id;
-
-    // If tile has a session, swap Core's session via loadSession
-    if(tile.sid&&typeof window.loadSession==='function'){
+    // If tile has a session, swap Core's session via loadSession.
+    // Skip when alreadyLoaded (Core already has this session — loaded hook).
+    if(tile.sid&&typeof window.loadSession==='function'&&!opts.alreadyLoaded){
       try{
         await window.loadSession(tile.sid);
       }catch(e){
-        // Roll back to outgoing session on failure
+        // On failure, roll back to outgoing session and keep outgoing active.
+        // Do NOT change activeId — outgoing stays active.
         if(outgoing&&outgoing.sid){
           try{await window.loadSession(outgoing.sid);}catch(_){}
         }
@@ -256,14 +255,8 @@
       }
     }
 
-    // Optimistic update of S.session (loadSession should have updated it)
-    const s=getS();
-    if(s&&tile.session){
-      s.session=tile.session;
-      s.messages=tile.messages||[];
-      s.busy=tile.busy;
-      s.activeStreamId=tile.activeStreamId;
-    }
+    // Set activeId AFTER loadSession succeeds (Finding 4: no authority split on failure)
+    T.activeId=id;
 
     // Update tile classes: focused = transparent, others = opaque with snapshot
     T.tiles.forEach(t=>{
@@ -445,8 +438,28 @@
     T._cols=cols;T._rows=rows;
     const grid=document.getElementById('ext-tile-grid');
     if(grid)applyLayout(cols,rows);
-    // Reposition existing tiles — no DOM rebuild needed
-    refreshTileGrid();
+
+    const newTotal=cols*rows;
+    if(newTotal!==T.tiles.length){
+      // Cardinality changed — rebuild tiles
+      // Remove existing tile elements from DOM
+      T.tiles.forEach(t=>{if(t.el)t.el.remove();});
+      // Rebuild tile array with new count
+      T.tiles=[];
+      for(let i=0;i<newTotal;i++){
+        buildTile(i+1);
+      }
+      // Re-append to grid
+      T.tiles.forEach(t=>{if(grid&&t.el)grid.appendChild(t.el);});
+      refreshTileGrid();
+      // Focus first tile
+      if(T.tiles.length>0){
+        await focusTile(T.tiles[0].id);
+      }
+    }else{
+      // Same cardinality — just reposition existing tiles
+      refreshTileGrid();
+    }
   }
 
   // ── Session-open handler (two-phase: preload → loaded) ──
