@@ -125,26 +125,37 @@ def _prepare_extension_bundle(extension_root: Path, target_root: Path) -> str:
 
 
 def _boot_page(page: Any, base_url: str) -> None:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
     page.goto(f"{base_url}/", wait_until="domcontentloaded", timeout=30_000)
     try:
         page.wait_for_load_state("networkidle", timeout=8_000)
     except Exception:
         pass
-    page.wait_for_timeout(1_000)
-    # Fix 1: Wait for Core to boot into chat state so panel-gating shows toolbar.
-    # The panel gating (initPanelGating) hides toolbar when main.main doesn't have
-    # class 'chat'. Core boots into chat state on load at '/'.
-    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    # Wait for the extension resource to be requested (proves the extension
+    # script has been loaded by Core).
+    _wait_for_extension_resource(page, base_url)
+
+    # Wait for the toolbar to become visible.  Panel gating (initPanelGating)
+    # shows the toolbar once Core's chat panel is active and the extension has
+    # initialized.  This can take longer than a simple network-idle wait.
+    toolbar = page.locator(TOOLBAR_SELECTOR)
     try:
-        page.wait_for_selector(
-            "main.main.chat",
-            state="attached",
-            timeout=ENTRY_TIMEOUT_MS,
-        )
+        toolbar.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS)
     except PlaywrightTimeoutError:
-        raise CompatibilityFailure(
-            "chat-tiling: main.main never got 'chat' class — panel gating will hide toolbar"
-        )
+        # Fallback: navigate directly to the chat panel.  The real Core may
+        # boot into a non-chat state on '/', so force the panel we need.
+        page.goto(f"{base_url}/?panel=chat", wait_until="domcontentloaded", timeout=30_000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=8_000)
+        except Exception:
+            pass
+        try:
+            toolbar.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS)
+        except PlaywrightTimeoutError as exc:
+            raise CompatibilityFailure(
+                "chat-tiling: toolbar not visible after boot and ?panel=chat fallback"
+            ) from exc
 
 
 def _wait_for_extension_resource(page: Any, base_url: str) -> None:
