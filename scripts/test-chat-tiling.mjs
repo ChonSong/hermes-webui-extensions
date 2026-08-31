@@ -676,6 +676,123 @@ async function main() {
     assert(loadSessionCalls.includes('sid-A'), 'loadSession rollback call for A');
   }
 
+  // S31: B1 — Stale focus failure does not roll back over a newer winner
+  section('S31: B1 — Stale focus failure does not roll back over a newer winner');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(3, 1);
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    // Seed all tiles with sessions
+    h.window.chatTilingState.tiles[0].sid = 'sid-A';
+    h.window.chatTilingState.tiles[0].session = { session_id: 'sid-A', title: 'Session A' };
+    h.window.chatTilingState.tiles[1].sid = 'sid-B';
+    h.window.chatTilingState.tiles[1].session = { session_id: 'sid-B', title: 'Session B' };
+    h.window.chatTilingState.tiles[2].sid = 'sid-C';
+    h.window.chatTilingState.tiles[2].session = { session_id: 'sid-C', title: 'Session C' };
+
+    // Start on A
+    h.window.focusTileExt(parseInt(tiles[0].dataset.tileId));
+    await settle();
+
+    // Make loadSession controllable: B rejects after delay, C resolves immediately
+    const origLoad = h.window.loadSession;
+    h.window.loadSession = (sid) => {
+      if (sid === 'sid-B') {
+        return new Promise((_, reject) => setTimeout(() => reject(new Error('B failed')), 50));
+      }
+      return origLoad(sid);
+    };
+    globalThis.loadSession = h.window.loadSession;
+
+    // Focus B (captures gen 1, outgoing A) — will fail after delay
+    h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
+    // Focus C (captures gen 2, outgoing B) — succeeds immediately
+    h.window.focusTileExt(parseInt(tiles[2].dataset.tileId));
+    await settle();
+
+    // Wait for B's late failure to settle
+    await sleep(200);
+
+    // C should still be active — B's stale failure must not roll back over C
+    assert(h.window.chatTilingState.activeId === parseInt(tiles[2].dataset.tileId), 'C remains active after stale B failure');
+    assert(h.window.S.session.session_id === 'sid-C', 'Core session is C, not rolled back to A');
+  }
+
+  // S32: B2 — Late focus after hide is a no-op
+  section('S32: B2 — Late focus after hide is a no-op');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 1);
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    h.window.chatTilingState.tiles[0].sid = 'sid-A';
+    h.window.chatTilingState.tiles[0].session = { session_id: 'sid-A', title: 'Session A' };
+    h.window.chatTilingState.tiles[1].sid = 'sid-B';
+    h.window.chatTilingState.tiles[1].session = { session_id: 'sid-B', title: 'Session B' };
+
+    // Start on A
+    h.window.focusTileExt(parseInt(tiles[0].dataset.tileId));
+    await settle();
+
+    // Make loadSession slow for B
+    const origLoad = h.window.loadSession;
+    h.window.loadSession = (sid) => {
+      if (sid === 'sid-B') {
+        return new Promise((resolve) => setTimeout(() => resolve(origLoad(sid)), 50));
+      }
+      return origLoad(sid);
+    };
+    globalThis.loadSession = h.window.loadSession;
+
+    // Start focusing B (captures gen)
+    h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
+    // Hide grid immediately (increments _focusGen, invalidating pending focus)
+    h.window.hideGridExt();
+    await settle();
+
+    // Wait for B's late loadSession to settle
+    await sleep(200);
+
+    // Grid should remain hidden — late focus must not re-show it or change state
+    assert(h.window.chatTilingState.visible === false, 'grid stays hidden after late focus');
+    assert(h.window.chatTilingState.tiles.length === 0, 'tiles cleared after hide');
+  }
+
+  // S33: B3 — Shrink ignores cancellation refusal and aborts layout change
+  section('S33: B3 — Shrink ignores cancellation refusal and aborts layout change');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 2);
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    assert(tiles.length === 4, 'started with 4 tiles');
+
+    // Make tile 3 and 4 busy (they will be removed when shrinking to 2 tiles)
+    h.window.chatTilingState.tiles[2].busy = true;
+    h.window.chatTilingState.tiles[2].activeStreamId = 'stream-C';
+    h.window.chatTilingState.tiles[3].busy = true;
+    h.window.chatTilingState.tiles[3].activeStreamId = 'stream-D';
+
+    // Make cancelSessionStream refuse for tile 3
+    h.window.cancelSessionStream = (opts) => {
+      if (opts.streamId === 'stream-C') return Promise.resolve(false); // refuse
+      return Promise.resolve(true);
+    };
+    globalThis.cancelSessionStream = h.window.cancelSessionStream;
+
+    // Try to shrink to 2 tiles — should abort because cancel was refused
+    await h.window.showGridExt(1, 2);
+    await settle();
+
+    // Layout change aborted — still 4 tiles
+    const remaining = Array.from(h.document.querySelectorAll('.ext-tile'));
+    assert(remaining.length === 4, 'layout change aborted: still 4 tiles after cancel refusal');
+  }
+
   console.log('\n' + '='.repeat(50));
   console.log(`Results: ${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

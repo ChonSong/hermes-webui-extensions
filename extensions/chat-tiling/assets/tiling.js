@@ -250,11 +250,16 @@
       try{
         await window.loadSession(tile.sid);
       }catch(e){
-        // On failure, roll back to outgoing session and keep outgoing active.
-        // Do NOT change activeId — outgoing stays active.
+        // A newer focus may have superseded us — don't roll back over a newer winner.
+        if(myGen!==T._focusGen)return;
+        // Own the rollback with the same operation identity.
+        T._focusGen++;
+        const rbGen=T._focusGen;
         if(outgoing&&outgoing.sid){
           try{await window.loadSession(outgoing.sid);}catch(_){}
         }
+        // After await, check if a newer focus superseded us
+        if(rbGen!==T._focusGen)return;
         return;
       }
       // After await, check if a newer focus superseded us
@@ -309,6 +314,9 @@
     const removed=T.tiles.splice(idx,1)[0];
     if(removed.el)removed.el.remove();
 
+    // Invalidate pending focus on the removed tile
+    T._focusGen++;
+
     // If we were focused, move focus
     if(T.activeId===id){
       T.activeId=null;
@@ -336,31 +344,23 @@
     T.visible=false;
     stopWatcher();
 
+    // Invalidate any pending focus so a late focus success/failure is a no-op
+    T._focusGen++;
+
     // Core already has the focused tile's session loaded (it was the last one focused).
     // No need to write tile cache over Core's current S — that would republish stale state.
+    // Leave composer/model untouched — they're already canonical from the live focused tile
+    // (the watcher projects S state into the focused tile; restoring stale tile.cv/mv
+    // would overwrite the user's latest input).
     // Just remove the overlay and let Core's current S stand.
 
     // Remove the overlay grid
     const grid=document.getElementById('ext-tile-grid');
     if(grid)grid.remove();
 
-    // Capture focused tile's composer/model before resetting state
-    const focused=at();
-    const focusedCv = focused ? focused.cv : '';
-    const focusedMv = focused ? focused.mv : '';
-
     // Reset state
     T.tiles=[];
     T.activeId=null;
-
-    // Restore focused tile's composer/model
-    const composer=document.getElementById('msg');
-    if(composer){
-      composer.value=focusedCv;
-      if(typeof window.autoResize==='function')window.autoResize();
-    }
-    const modelSelect=document.getElementById('modelSelect');
-    if(modelSelect&&focusedMv)modelSelect.value=focusedMv;
 
     T._saved=null;
     T._savedComposer='';
@@ -462,17 +462,28 @@
       const oldActiveId=T.activeId;
       const oldActiveTile=oldActiveId?oldTiles.find(t=>t.id===oldActiveId):null;
 
-      // Cancel busy streams for tiles that will be removed (beyond new count)
       const removedTiles=oldTiles.slice(newTotal);
-      for(const rt of removedTiles){
-        if(rt.busy&&rt.activeStreamId){
-          try{await window.cancelSessionStream({streamId:rt.activeStreamId,sessionId:rt.sid});}catch(_){}
+      const survivingTiles=oldTiles.slice(0,newTotal);
+
+      // B3 fix: transactional shrink — cancel excess busy tiles first.
+      // If any refuse, abort the entire layout change.
+      const busyRemoved=removedTiles.filter(t=>t.busy&&t.activeStreamId);
+      if(busyRemoved.length>0){
+        const results=await Promise.all(busyRemoved.map(t=>window.cancelSessionStream({streamId:t.activeStreamId,sessionId:t.sid})));
+        if(results.some(r=>!r)){
+          // Cancellation refused — abort layout change, restore previous grid
+          if(grid)applyLayout(T._cols,T._rows);
+          return;
         }
+      }
+
+      // All excess tiles cleared — remove them
+      for(const rt of removedTiles){
         if(rt.el)rt.el.remove();
       }
 
       // Keep tiles up to new count (preserve their authority)
-      T.tiles=oldTiles.slice(0,newTotal);
+      T.tiles=survivingTiles;
 
       // Build new empty tiles for any expansion
       const maxId=oldTiles.length>0?Math.max(...oldTiles.map(t=>t.id)):0;
