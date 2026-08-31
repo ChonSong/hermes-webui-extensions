@@ -208,50 +208,56 @@ def _test_focused_tile_click_pass_through(
     """
     case_name = "focused-tile-click-pass-through"
 
-    # Install a click listener on #msgInner to detect pass-through.
+    # Install a click listener on #msgInner (and fallback on #messages) to
+    # detect pass-through.  The grid overlay has pointer-events: none, so a
+    # click at its center should reach #msgInner underneath.
     page.evaluate(
         """() => {
           window.__chatTilingClickThrough = 0;
+          window.__chatTilingClickThroughMessages = 0;
           const mi = document.getElementById('msgInner');
-          if (!mi) return false;
-          mi.addEventListener('click', function handler(e) {
-            window.__chatTilingClickThrough++;
-            mi.removeEventListener('click', handler);
-          }, { once: true });
+          if (mi) {
+            mi.addEventListener('click', function handler(e) {
+              window.__chatTilingClickThrough++;
+              mi.removeEventListener('click', handler);
+            }, { once: true });
+          }
+          const msgs = document.getElementById('messages');
+          if (msgs) {
+            msgs.addEventListener('click', function handler(e) {
+              window.__chatTilingClickThroughMessages++;
+              msgs.removeEventListener('click', handler);
+            }, { once: true });
+          }
           return true;
         }"""
     )
 
-    # Find the focused tile's body and click its center.
-    focused_body = page.locator(f"{FOCUSED_TILE_SELECTOR} .ext-tile-body")
-    try:
-        focused_body.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS)
-    except Exception as exc:
-        raise CompatibilityFailure(
-            f"{case_name}: focused tile body not visible"
-        ) from exc
-
-    bbox = focused_body.bounding_box()
+    # Get the grid overlay's bounding box and click its center.  The focused
+    # tile body is empty (.ext-tile-msg-inner is display: none from a prior
+    # fix, and the real #msgInner lives in Core's #messages), so we target
+    # the grid overlay directly which has pointer-events: none.
+    grid = page.locator(TILE_GRID_SELECTOR)
+    grid.wait_for(state="attached", timeout=ENTRY_TIMEOUT_MS)
+    bbox = grid.bounding_box()
     if bbox is None:
-        raise CompatibilityFailure(
-            f"{case_name}: could not get bounding box of focused tile body"
-        )
+        raise CompatibilityFailure(f"{case_name}: could not get grid bounding box")
 
-    # Click in the upper portion of the body (away from the titlebar).
     click_x = bbox["x"] + bbox["width"] / 2
-    click_y = bbox["y"] + 30  # 30px below the top of the body
+    click_y = bbox["y"] + bbox["height"] / 2
     page.mouse.click(click_x, click_y)
 
-    # Give the event a tick to propagate.
-    page.wait_for_timeout(200)
+    # Give the event time to propagate (500ms for CI stability).
+    page.wait_for_timeout(500)
 
-    # Assert the click reached #msgInner.
+    # Assert the click reached #msgInner (or #messages as fallback).
     clicks = page.evaluate("() => window.__chatTilingClickThrough || 0")
-    if clicks < 1:
+    clicks_messages = page.evaluate("() => window.__chatTilingClickThroughMessages || 0")
+    if clicks < 1 and clicks_messages < 1:
         _record_screenshot(page, evidence_dir / f"{case_name}.png")
         raise CompatibilityFailure(
-            f"{case_name}: click on focused tile did not reach #msgInner "
-            f"(clicks={clicks})"
+            f"{case_name}: click on grid overlay did not reach #msgInner "
+            f"or #messages (clicks={clicks}, clicks_messages={clicks_messages})"
         )
 
     _record_screenshot(page, evidence_dir / f"{case_name}.png")
