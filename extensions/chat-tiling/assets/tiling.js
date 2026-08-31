@@ -34,7 +34,8 @@
   const EXT_CSS = `
 #ext-tile-grid{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;display:grid;gap:0}
 .ext-tile{position:absolute;min-width:0;min-height:0;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
-.ext-tile--focused{border-color:var(--accent);background:transparent;pointer-events:auto}
+.ext-tile--focused{border-color:var(--accent);background:transparent;pointer-events:none}
+.ext-tile--focused .ext-tile-titlebar{pointer-events:auto}
 .ext-tile:not(.ext-tile--focused){background:var(--bg);pointer-events:auto}
 .ext-tile--maximized{grid-area:1/1/-1/-1!important;z-index:2}
 .ext-tile--hidden{display:none}
