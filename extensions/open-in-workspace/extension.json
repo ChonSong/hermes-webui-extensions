@@ -1,0 +1,45 @@
+{
+  "id": "open-in-workspace",
+  "name": "Open in Workspace",
+  "description": "Adds an 'Open in workspace' button to read_file tool cards, plus numbered file-change chips on assistant message footers — one per file written in that turn.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "open-in-workspace.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": false
+    },
+    "network_external": false
+  }
+}
