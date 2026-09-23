@@ -95,6 +95,8 @@ contract evolves.
 
 Run the current repo-wide checks locally with:
 
+## Local test
+
 ```bash
 node scripts/validate-extensions.mjs
 node scripts/run-behavior-tests.mjs --check

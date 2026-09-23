@@ -1,0 +1,11 @@
+# gitleaks config for hermes-webui-extensions
+[allowlist]
+description = "Allow known test/non-secret values"
+regexes = [
+    "(?i)^test(-|_|$)",
+    "(?i)^your(-|_|$)",
+]
+paths = [
+    "(?i)extensions/",
+    "(?i)scripts/",
+]
