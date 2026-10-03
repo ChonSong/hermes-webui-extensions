@@ -418,7 +418,17 @@
   async function _focusTileImpl(id,opts,myOpGen){
     opts=opts||{};
     const tile=tid(id);
-    if(!tile)return;
+    if(!tile){
+      // A queued focus can outlive its target's close. That no-op must still
+      // settle the surviving tile whose Core load the close already completed.
+      const s=getS();
+      const owner=s&&s.session?bySid(s.session.session_id):null;
+      if(myOpGen===T._opGen&&owner&&T.activeId!==owner.id){
+        snapshotLive(owner);
+        _commitFocus(owner);
+      }
+      return;
+    }
     // An unbound tile has no session to hand Core. Focusing one while Core
     // holds a *different* session would leave the composer pointed at that
     // other conversation while the tile claims authority — so it is only
@@ -504,17 +514,27 @@
       snapshotLive(tile);
 
       if(tile.busy&&tile.activeStreamId){
+        const cancelSid=tile.sid;
+        const cancelStream=tile.activeStreamId;
+        const cancelSession=tile.session;
         let ok=false;
         try{
           // Core's cancelSessionStream(session) reads snake_case keys
           // (boot.js): session.active_stream_id / session.session_id. Passing
           // camelCase makes it return false, which leaves a streaming tile
           // permanently unclosable.
-          ok=await window.cancelSessionStream({active_stream_id:tile.activeStreamId,session_id:tile.sid});
+          ok=await window.cancelSessionStream({active_stream_id:cancelStream,session_id:cancelSid});
         }catch(e){
           return;
         }
         if(!ok)return; // Cancellation refused — preserve tile
+        // External Core navigation is not on our queue. It may rebind this
+        // tile or start a new stream while the old cancellation is pending.
+        if(tid(id)!==tile||tile.sid!==cancelSid||tile.session!==cancelSession||
+           (tile.activeStreamId&&tile.activeStreamId!==cancelStream))return;
+        snapshotLive(tile);
+        if(tile.session!==cancelSession||
+           (tile.activeStreamId&&tile.activeStreamId!==cancelStream))return;
       }
 
       // Invalidate pending focus on the removed tile
@@ -820,6 +840,7 @@
         const s=getS();
         if(s&&s.session&&s.session.session_id===sid){
           snapshotLive(t);
+          seedFromLiveControls(t);
           _commitFocus(t);
         }
         return {destinationTileId:t.id};

@@ -1253,8 +1253,12 @@ async function main() {
     const core = installTwoPhaseCore(h);
     await h.window.loadSession('sid-A');
     await h.window.showGridExt(2, 1);
+    h.document.getElementById('msg').value = 'live-noop-draft';
+    h.document.getElementById('modelSelect').value = 'claude';
     await h.window.loadSession('sid-A');
     const st = h.window.chatTilingState;
+    assert(h.document.getElementById('msg').value === 'live-noop-draft', 'same-SID no-op preserves unsaved composer draft');
+    assert(h.document.getElementById('modelSelect').value === 'claude', 'same-SID no-op preserves live model control');
     assert(st.tiles.every(t => !t._pending), 'preload-only same SID does not reserve a slot');
     await h.window.loadSession('sid-B');
     await h.window.loadSession('sid-C');
@@ -1312,6 +1316,56 @@ async function main() {
     release();
     await pending;
     assert(st.activeId === b.id && h.S.session.session_id === 'sid-B', 'newer loaded hook wins over interrupted internal focus');
+  }
+
+  section('R19: queued focus on a just-closed target settles actual surviving owner');
+  {
+    const h = createFreshDom();
+    installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    await h.window.loadSession('sid-B');
+    const st = h.window.chatTilingState;
+    const a = st.tiles[0], b = st.tiles[1];
+    await Promise.all([h.window.closeTileExt(b.id), h.window.focusTileExt(b.id)]);
+    assert(st.tiles.length === 1 && st.activeId === a.id && h.S.session.session_id === a.sid,
+      'close plus queued removed-target focus retains a valid actual Core owner');
+  }
+
+  section('R18: pending cancellation cannot close a rebound session or replacement stream');
+  for (const disposition of ['rebound-session', 'replacement-stream', 'cleared-old-stream']) {
+    const h = createFreshDom();
+    const core = installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    core.sessions.set('sid-B', { messages: ['B'], busy: true, stream: 'old-stream-B' });
+    await h.window.loadSession('sid-B');
+    const st = h.window.chatTilingState;
+    const b = st.tiles.find(t => t.sid === 'sid-B');
+    let release;
+    h.window.cancelSessionStream = () => new Promise(resolve => { release = resolve; });
+    const closing = h.window.closeTileExt(b.id);
+    await sleep(5);
+    if (disposition === 'rebound-session') {
+      h.window.__settings.auto_tile = false;
+      await h.window.loadSession('sid-C');
+    } else if (disposition === 'replacement-stream') {
+      // The matching Core state may advance before the next watcher tick.
+      h.S.activeStreamId = 'new-stream-B';
+    } else {
+      h.S.busy = false;
+      h.S.activeStreamId = null;
+    }
+    release(true);
+    await closing;
+    if (disposition === 'cleared-old-stream') {
+      assert(!st.tiles.includes(b) && h.S.session.session_id === 'sid-A', 'normal successful cancellation with cleared old stream still closes');
+    } else {
+      const expected = disposition === 'rebound-session' ? 'sid-C' : 'sid-B';
+      assert(st.tiles.includes(b) && b.sid === expected && st.activeId === b.id && h.S.session.session_id === expected,
+        `${disposition}: late old cancellation preserves current tile and Core owner`);
+      if (disposition === 'replacement-stream') assert(b.activeStreamId === 'new-stream-B', 'new stream ownership is hydrated before post-cancel guard');
+    }
   }
 
   section('R17: external loaded disposition interrupts layout settle safely');

@@ -542,7 +542,9 @@ def _test_real_core_lifecycle(*, page: Any, evidence_dir: Path) -> dict[str, Any
         await showGridExt(2,1);
       };
       await reset();
+      document.getElementById('msg').value='Synthetic live no-op draft';
       await loadSession('tiling-compat-A');
+      check('same-SID no-op preserves live draft',document.getElementById('msg').value==='Synthetic live no-op draft');
       check('same-SID preload-only has no reservation',T.tiles.every(t=>!t._pending));
       await reset();
       S.messages=[...S.messages,{role:'assistant',content:'Synthetic late A snapshot'}];
@@ -584,6 +586,41 @@ def _test_real_core_lifecycle(*, page: Any, evidence_dir: Path) -> dict[str, Any
         await Promise.all([closeTileExt(busy.id),closeTileExt(busy.id)]);
         check('repeated close is single-flight',cancels===2&&T.tiles.length===1&&owner()===S.session.session_id);
       } finally {window._hermesNotifySessionOpen=realNotify;window.cancelSessionStream=realCancel;S.busy=false;S.activeStreamId=null;}
+
+      // A cancellation response cannot authorize removal of later ownership.
+      for(const disposition of ['rebound-session','replacement-stream','cleared-old-stream']){
+        await reset();await loadSession('tiling-compat-B');
+        S.busy=true;S.activeStreamId='synthetic-old-stream-B';
+        const tile=T.tiles.find(t=>t.sid==='tiling-compat-B');
+        const cancel=window.cancelSessionStream;
+        const settings=HermesExtensionSettings.settingsForExtension('chat-tiling');
+        const auto=settings.get('auto_tile');let release;
+        window.cancelSessionStream=()=>new Promise(resolve=>{release=resolve});
+        try{
+          const closing=closeTileExt(tile.id);
+          await new Promise(resolve=>setTimeout(resolve,10));
+          if(disposition==='rebound-session'){
+            settings.set('auto_tile',false);
+            await loadSession('tiling-compat-C');
+          }else if(disposition==='replacement-stream'){
+            S.activeStreamId='synthetic-new-stream-B';
+          }else{
+            S.busy=false;S.activeStreamId=null;
+          }
+          release(true);await closing;
+          if(disposition==='cleared-old-stream'){
+            check('successful cleared old stream closes',!T.tiles.includes(tile)&&owner()==='tiling-compat-A'&&S.session.session_id===owner());
+          }else{
+            const sid=disposition==='rebound-session'?'tiling-compat-C':'tiling-compat-B';
+            check('pending cancellation preserves '+disposition,T.tiles.includes(tile)&&tile.sid===sid&&owner()===sid&&S.session.session_id===sid&&
+              (disposition!=='replacement-stream'||tile.activeStreamId==='synthetic-new-stream-B'));
+          }
+        }finally{window.cancelSessionStream=cancel;settings.set('auto_tile',auto??true);S.busy=false;S.activeStreamId=null;}
+      }
+      await reset();await loadSession('tiling-compat-B');
+      const closingTarget=T.tiles.find(t=>t.sid==='tiling-compat-B');
+      await Promise.all([closeTileExt(closingTarget.id),focusTileExt(closingTarget.id)]);
+      check('queued removed-target focus settles surviving actual owner',T.tiles.length===1&&owner()==='tiling-compat-A'&&S.session.session_id===owner());
 
       await reset();await loadSession('tiling-compat-B');
       const target=T.tiles.find(t=>t.sid==='tiling-compat-A');
