@@ -94,6 +94,7 @@
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;font-size:10px;font-weight:700;line-height:16px;color:var(--bg);background:var(--accent)}
 .ext-tile--focused .ext-tile-sidebar-badge{display:none}
 #ext-tiling-toolbar{display:flex;gap:4px;align-items:center;margin-left:auto}
+#ext-tiling-toolbar,#ext-tiling-toolbar button{-webkit-app-region:no-drag}
 #ext-tiling-toolbar.ext-tiling-toolbar--hidden{display:none}
 .ext-toolbar-btn{background:none;border:1px solid transparent;border-radius:6px;color:var(--text-secondary);cursor:pointer;padding:4px 8px;display:flex;align-items:center;justify-content:center;line-height:1;opacity:.7;transition:opacity .15s;font-size:12px;white-space:nowrap}
 .ext-toolbar-btn:hover{opacity:1;background:var(--bg-hover)}
@@ -143,6 +144,18 @@
 
   function bySid(sid){
     return T.tiles.find(t=>t.sid===sid)||null;
+  }
+
+  // Core is canonical only for the matching session. Copy at lifecycle
+  // boundaries as well as on the watcher, so an immediate switch/close cannot
+  // lose messages or a stream that started since the last 300ms poll.
+  function snapshotLive(tile){
+    const s=getS();
+    if(!tile||!s||!s.session||s.session.session_id!==tile.sid)return;
+    tile.session=s.session;
+    tile.messages=[...(s.messages||[])];
+    tile.busy=!!s.busy;
+    tile.activeStreamId=s.activeStreamId||null;
   }
 
   function rc(tile){
@@ -357,17 +370,7 @@
   }
 
   function reserveTile(sid){
-    let t=findPendingTile(sid);
-    if(t)return t;
-    t=findEmptyTile();
-    if(t)return t;
-    // Every remaining slot is freshly reserved (reapStaleReservations already
-    // released anything past preload_timeout_ms), so take over the focused tile.
-    // A sidebar click must always have a destination, otherwise Core would load
-    // a session while no tile is bound to it.
-    const act=at();
-    if(act&&act.sid)return act;
-    return null;
+    return bySid(sid)||findPendingTile(sid)||findEmptyTile()||null;
   }
 
   function bindTile(t,sid,data){
@@ -376,6 +379,7 @@
     t.messages=data&&data.messages?data.messages:[];
     t.busy=false;
     t.activeStreamId=null;
+    snapshotLive(t);
     clearReservation(t);
     updateHeader(t);
   }
@@ -428,13 +432,13 @@
     T._focusGen++;
     const myGen=T._focusGen;
     const outgoing=at();
-    if(outgoing&&outgoing!==tile)sc(outgoing);
+    if(outgoing&&outgoing!==tile){sc(outgoing);snapshotLive(outgoing);}
 
     // If tile has a session, swap Core's session via loadSession.
     // Skip when alreadyLoaded (Core already has this session — loaded hook).
     if(tile.sid&&!opts.alreadyLoaded&&typeof window.loadSession==='function'){
       try{
-        await window.loadSession(tile.sid);
+        await window.loadSession(tile.sid,{skipExtHooks:true});
       }catch(e){
         // A newer focus may have superseded us — don't roll back over a newer winner.
         if(myGen!==T._focusGen)return;
@@ -442,10 +446,20 @@
         T._focusGen++;
         const rbGen=T._focusGen;
         if(outgoing&&outgoing.sid){
-          try{await window.loadSession(outgoing.sid);}catch(_){}
+          try{await window.loadSession(outgoing.sid,{skipExtHooks:true});}catch(_){}
         }
         // After await, check if a newer focus superseded us
         if(rbGen!==T._focusGen)return;
+        const rollbackS=getS();
+        if(myOpGen===T._opGen&&outgoing&&outgoing.sid&&
+           (!rollbackS||!rollbackS.session||rollbackS.session.session_id!==outgoing.sid)){
+          // A failed rollback cannot leave the outgoing tile claiming a live
+          // session Core no longer owns.
+          T.activeId=null;
+          refreshTileGrid();
+          renderSnapshot(outgoing);
+          stopWatcher();
+        }
         // Callers that must not proceed on a failed swap (the layout settle
         // path) opt in to seeing the rejection.
         if(opts.throwOnFailure)throw e;
@@ -457,6 +471,15 @@
 
     // Commit only if this operation is still current
     if(myOpGen!==T._opGen)return;
+
+    // Core may return undefined after a veto or a superseded load. A resolved
+    // promise does not establish ownership of the requested session.
+    const settled=getS();
+    if(tile.sid&&(!settled||!settled.session||settled.session.session_id!==tile.sid)){
+      if(opts.throwOnFailure)throw new Error('Tile session did not become the live Core session');
+      return;
+    }
+    snapshotLive(tile);
 
     _commitFocus(tile);
   }
@@ -477,6 +500,8 @@
       if(!tile)return;
       const idx=T.tiles.indexOf(tile);
       if(idx<0)return;
+
+      snapshotLive(tile);
 
       if(tile.busy&&tile.activeStreamId){
         let ok=false;
@@ -523,6 +548,7 @@
   // ── Close all — refuse if any busy (no partial cancel) ──
   function closeAll(){
     return enqueueOp((myOpGen)=>{
+      snapshotLive(at());
       const busyTiles=T.tiles.filter(t=>t.busy&&t.activeStreamId);
       if(busyTiles.length>0){
         // Refuse if any tile is busy — concurrent cancellation can partially
@@ -664,6 +690,7 @@
   }
 
   async function _switchLayoutImpl(cols,rows,myOpGen){
+    snapshotLive(at());
     const newTotal=cols*rows;
     if(newTotal===T.tiles.length){
       // Same cardinality — just reposition existing tiles
@@ -712,6 +739,9 @@
         return; // Successor focus failed — abort layout change
       }
       if(myOpGen!==T._opGen)return;
+      const settled=getS();
+      if(T.activeId!==oldActiveTile.id||!settled||!settled.session||
+         settled.session.session_id!==oldActiveTile.sid)return;
     }
 
     // Commit only if this operation is still current
@@ -775,7 +805,7 @@
       // Snapshot the outgoing draft BEFORE Core swaps sessions and resets the
       // composer — afterwards the live value belongs to the incoming session.
       const outgoing=at();
-      if(outgoing&&outgoing.sid!==sid)sc(outgoing);
+      if(outgoing&&outgoing.sid!==sid){sc(outgoing);snapshotLive(outgoing);}
 
       if(gs('auto_tile',true)===false){
         // Auto-tiling off: allow navigation, but only if there is a focused
@@ -784,6 +814,16 @@
       }
       const t=reserveTile(sid);
       if(!t)return {cancel:true}; // No destination — veto rather than split authority
+      // Existing sessions already have a destination. Core emits preload but
+      // no loaded hook for a same-session no-op, so never reserve another slot.
+      if(t.sid===sid){
+        const s=getS();
+        if(s&&s.session&&s.session.session_id===sid){
+          snapshotLive(t);
+          _commitFocus(t);
+        }
+        return {destinationTileId:t.id};
+      }
       t._pending=true;
       t._pendingSid=sid;
       t._pendingAt=Date.now();
@@ -791,27 +831,25 @@
     }
 
     if(opts.loaded){
+      const s=getS();
+      if(!s||!s.session||s.session.session_id!==sid)return {};
+      // A real external load supersedes an internal focus/rollback in flight.
+      T._focusGen++;
       const auto=gs('auto_tile',true)!==false;
-      const t=auto?findPendingTile(sid):null;
+      const t=auto?(bySid(sid)||findPendingTile(sid)):null;
       if(t){
-        // The reservation is the intent: this tile was chosen for this sid at
-        // preload time, so it wins even if it is still bound to the session the
-        // user just navigated away from.
-        const isNew=!t.sid;
+        // Reuse the tile already bound to this SID, or the free destination
+        // reserved at preload. Never replace another bound conversation.
         bindTile(t,sid,data);
-        if(isNew&&T.tiles.length>1){
-          // Core already loaded this session (loaded hook) and owns the
-          // composer draft for it — adopt that value instead of clobbering it
-          // with the tile's empty default.
-          seedFromLiveControls(t);
-          _commitFocus(t);
-        }
+        // Core owns the loaded composer/draft even when only one tile remains.
+        seedFromLiveControls(t);
+        _commitFocus(t);
         updateBadgeCounts();
         return {};
       }
       // No reservation — rebind the focused tile so Core and the tile agree.
       const act=at();
-      if(act&&act.sid!==sid){
+      if(act){
         bindTile(act,sid,data);
         seedFromLiveControls(act);
         _commitFocus(act);

@@ -121,6 +121,31 @@ async function bindTileViaHook(h, sid, msgs) {
   await settle();
 }
 
+// Production loadSession emits preload before its same-SID no-op, and loaded
+// only after updating the live Core state. Keep legacy isolated tests above;
+// these lifecycle regressions must exercise the ordering their setter omits.
+function installTwoPhaseCore(h) {
+  const sessions = new Map();
+  const phases = [];
+  h.window.loadSession = async (sid, opts = {}) => {
+    if (!opts.skipExtHooks) {
+      phases.push(['preload', sid]);
+      if (h.window.handlerRegistration(sid, null, { preload: true, opts }).cancel) return;
+    }
+    if (h.S.session?.session_id === sid && !opts.force) return;
+    const saved = sessions.get(sid) || { messages: [sid], busy: false, stream: null };
+    h.S.session = { session_id: sid, title: sid, messages: [] };
+    h.S.messages = [...saved.messages];
+    h.S.busy = !!saved.busy;
+    h.S.activeStreamId = saved.stream || null;
+    if (!opts.skipExtHooks) {
+      phases.push(['loaded', sid]);
+      h.window.handlerRegistration(sid, h.S.session, { loaded: true });
+    }
+  };
+  return { sessions, phases };
+}
+
 async function main() {
 
   // S1: Inactive on page load
@@ -199,7 +224,9 @@ async function main() {
     await settle();
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
     const tileA = tiles[0];
+    h.S.busy = true;
     h.window.chatTilingState.tiles[0].busy = true;
+    h.S.activeStreamId = 'stream-A';
     h.window.chatTilingState.tiles[0].activeStreamId = 'stream-A';
     h.window.focusTileExt(parseInt(tileA.dataset.tileId));
     await settle();
@@ -227,8 +254,9 @@ async function main() {
     assert(bTile !== undefined, 'B reserved the free slot');
 
     // C arrives immediately. B's reservation is still inside its deadline, so C
-    // must NOT steal it — it takes over the focused tile instead.
-    h.window.handlerRegistration('sid-C', null, { preload: true });
+    // must NOT steal it or overwrite the focused tile: navigation is vetoed.
+    const veto = h.window.handlerRegistration('sid-C', null, { preload: true });
+    assert(veto.cancel === true, 'fresh reservations and bound tiles veto a new session');
     assert(st.tiles.find(t => t.id === bTile.id)._pendingSid === 'sid-B',
       'B reservation retained before the deadline');
 
@@ -328,6 +356,9 @@ async function main() {
     await bindTileViaHook(h, 'sid-B', ['b-msg']);
     h.window.focusTileExt(parseInt(tileA.dataset.tileId));
     await settle();
+    // A real active stream belongs to matching Core S, not only the tile cache.
+    h.S.busy = true;
+    h.S.activeStreamId = 'stream-A';
     let cancelCallCount = 0;
     h.window.cancelSessionStream = (session) => { cancelCallCount++; h.window.cancelStreamCalls.push(session); return new Promise(r => setTimeout(() => r(true), 40)); };
     globalThis.cancelSessionStream = h.window.cancelSessionStream;
@@ -1194,6 +1225,142 @@ async function main() {
     h.window.focusTileExt(st.tiles[1].id);
     await settle();
     assert(st.activeId === before, 'unbound tile is not focusable once Core has a session');
+  }
+
+  section('R12: actual two-phase focus preserves distinct sessions and exact owner');
+  {
+    const h = createFreshDom();
+    const core = installTwoPhaseCore(h);
+    core.sessions.set('sid-A', { messages: ['hydrated-A'] });
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    await h.window.loadSession('sid-B');
+    const st = h.window.chatTilingState;
+    const a = st.tiles.find(t => t.sid === 'sid-A');
+    const b = st.tiles.find(t => t.sid === 'sid-B');
+    await h.window.focusTileExt(a.id);
+    assert(st.tiles.map(t => t.sid).join(',') === 'sid-A,sid-B', 'internal focus does not rebind B to A');
+    assert(h.S.session.session_id === st.tiles.find(t => t.id === st.activeId).sid, 'focused tile owns exact Core SID');
+    assert(core.phases.filter(([phase]) => phase === 'loaded').length === 2, 'internal focus bypasses both extension phases');
+    await h.window.focusTileExt(b.id);
+    await h.window.closeTileExt(b.id);
+    assert(st.tiles.length === 1 && st.activeId === a.id && h.S.session.session_id === 'sid-A', 'close swaps real Core to surviving A');
+  }
+
+  section('R13: same-SID no-op has no reservation and full grid vetoes navigation');
+  {
+    const h = createFreshDom();
+    const core = installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    await h.window.loadSession('sid-A');
+    const st = h.window.chatTilingState;
+    assert(st.tiles.every(t => !t._pending), 'preload-only same SID does not reserve a slot');
+    await h.window.loadSession('sid-B');
+    await h.window.loadSession('sid-C');
+    assert(st.tiles.map(t => t.sid).join(',') === 'sid-A,sid-B', 'full grid preserves both sessions');
+    assert(h.S.session.session_id === 'sid-B', 'full grid veto precedes Core swap');
+    await h.window.loadSession('sid-A');
+    assert(st.tiles.map(t => t.sid).join(',') === 'sid-A,sid-B', 'existing SID reuses its own tile');
+    assert(st.activeId === st.tiles[0].id, 'loaded existing SID focuses its tile');
+    assert(core.phases.at(-1)[0] === 'loaded', 'existing SID still completes normal two-phase load');
+  }
+
+  section('R14: hydrated Core state survives preload, loaded, and immediate busy close');
+  {
+    const h = createFreshDom();
+    const core = installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    h.S.messages = [...h.S.messages, 'late-A'];
+    core.sessions.set('sid-B', { messages: ['hydrated-B'], busy: true, stream: 'stream-B' });
+    await h.window.loadSession('sid-B');
+    const st = h.window.chatTilingState;
+    const a = st.tiles.find(t => t.sid === 'sid-A');
+    const b = st.tiles.find(t => t.sid === 'sid-B');
+    assert(a.messages.includes('late-A'), 'preload snapshots outgoing hydrated messages before Core swaps');
+    assert(b.messages.join(',') === 'hydrated-B', 'loaded adopts hydrated S.messages rather than metadata array');
+    assert(b.busy && b.activeStreamId === 'stream-B', 'loaded immediately preserves matching busy stream');
+    h.window.__cancelAllowed = false;
+    await h.window.closeTileExt(b.id);
+    assert(st.tiles.includes(b), 'refused immediate cancel preserves busy tile');
+    h.window.__cancelAllowed = true;
+    await Promise.all([h.window.closeTileExt(b.id), h.window.closeTileExt(b.id)]);
+    assert(h.window.cancelStreamCalls.length === 2, 'refused then repeated successful close invokes cancellation once per transaction');
+    assert(h.window.cancelStreamCalls.at(-1)?.session_id === 'sid-B', 'cancel targets actual loaded busy owner');
+    assert(st.activeId === a.id && h.S.session.session_id === 'sid-A', 'busy close settles survivor owner');
+  }
+
+  section('R15: owner mismatch and interrupted focus cannot commit a false owner');
+  {
+    const h = createFreshDom();
+    installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    await h.window.loadSession('sid-B');
+    const st = h.window.chatTilingState;
+    const a = st.tiles[0], b = st.tiles[1];
+    const realLoad = h.window.loadSession;
+    h.window.loadSession = async () => {}; // Core veto/no-op returning undefined without target ownership.
+    await h.window.focusTileExt(a.id);
+    assert(st.activeId === b.id && h.S.session.session_id === 'sid-B', 'undefined load without exact owner cannot commit focus');
+    let release;
+    h.window.loadSession = (sid, opts) => new Promise(resolve => { release = () => resolve(); });
+    const pending = h.window.focusTileExt(a.id, { force: true });
+    await sleep(5);
+    await realLoad('sid-B', { force: true }); // newer external loaded disposition
+    release();
+    await pending;
+    assert(st.activeId === b.id && h.S.session.session_id === 'sid-B', 'newer loaded hook wins over interrupted internal focus');
+  }
+
+  section('R17: external loaded disposition interrupts layout settle safely');
+  {
+    const h = createFreshDom();
+    installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 2);
+    await h.window.loadSession('sid-B');
+    await h.window.loadSession('sid-C');
+    await h.window.loadSession('sid-D');
+    const st = h.window.chatTilingState;
+    const realLoad = h.window.loadSession;
+    let release;
+    h.window.loadSession = () => new Promise(resolve => { release = resolve; });
+    const pending = h.window.showGridExt(2, 1);
+    await sleep(5);
+    await realLoad('sid-B');
+    release();
+    await pending;
+    assert(st.tiles.length === 4, 'interrupted layout keeps original membership');
+    assert(st.tiles.find(t => t.id === st.activeId).sid === 'sid-B' && h.S.session.session_id === 'sid-B',
+      'layout cannot overwrite newer actual loaded focus');
+  }
+
+  section('R16: internal rollback also bypasses extension hooks');
+  {
+    const h = createFreshDom();
+    const core = installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    await h.window.loadSession('sid-B');
+    const st = h.window.chatTilingState;
+    const realLoad = h.window.loadSession;
+    h.window.loadSession = async (sid, opts) => {
+      if (sid === 'sid-A') throw new Error('expected load failure');
+      return realLoad(sid, opts);
+    };
+    const before = core.phases.length;
+    await h.window.focusTileExt(st.tiles[0].id);
+    assert(core.phases.length === before, 'rollback B does not run preload or loaded');
+    assert(st.activeId === st.tiles[1].id && h.S.session.session_id === 'sid-B', 'failed swap leaves exact outgoing owner');
+    h.window.loadSession = async (sid) => {
+      if (sid === 'sid-A') { h.S.session = { session_id: sid }; throw new Error('partial target load'); }
+      return; // Rollback resolved without restoring its owner.
+    };
+    await h.window.focusTileExt(st.tiles[0].id);
+    assert(st.activeId === null, 'failed rollback cannot leave an outgoing tile claiming a different Core owner');
+
   }
 
   console.log('\n' + '='.repeat(50));

@@ -11,7 +11,10 @@ architecture depends on:
 2. **Scroll geometry** — ``#messages`` is Core's single scroll owner and must
    remain scrollable while the tile overlay is active; the overlay must not
    capture the wheel.
-3. **Failed-focus rollback** — when ``loadSession`` rejects, ``focusTile``
+3. **Real Core lifecycle** — two-phase navigation, same-session no-op,
+   full-grid veto, exact focus ownership, immediate busy close, and desktop
+   drag-region exemption. Busy stream state is a synthetic boundary fixture.
+4. **Failed-focus rollback** — when ``loadSession`` rejects, ``focusTile``
    rolls back to the outgoing session and the visual state (focused class,
    tile count, ``#msgInner`` placement) must be clean: no half-focused tile,
    no stuck overlay.
@@ -31,6 +34,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
 import os
 import shutil
 import sys
@@ -48,6 +53,7 @@ try:
         _install_network_guards,
         _record_screenshot,
         _start_server,
+        _sanitized_environment,
         _terminate,
         _write_json,
     )
@@ -59,6 +65,7 @@ except ModuleNotFoundError:  # pragma: no cover - supports module execution.
         _install_network_guards,
         _record_screenshot,
         _start_server,
+        _sanitized_environment,
         _terminate,
         _write_json,
     )
@@ -463,154 +470,158 @@ def _test_messages_scrolls_with_overlay(
 # ---------------------------------------------------------------------------
 
 def _test_failed_focus_rollback(
-    *,
-    page: Any,
-    console_errors: list[dict[str, str]],
-    page_errors: list[str],
-    network_events: dict[str, list[dict[str, Any]]],
-    evidence_dir: Path,
+    *, page: Any, console_errors: list, page_errors: list,
+    network_events: dict, evidence_dir: Path,
 ) -> dict[str, Any]:
-    """When loadSession rejects, focusTile rolls back and state is clean.
+    state = page.evaluate("""async () => {
+      await hideGridExt();
+      await loadSession('tiling-compat-A', {skipExtHooks:true, force:true});
+      await showGridExt(2, 1);
+      await loadSession('tiling-compat-B');
+      const T = chatTilingState;
+      const a = T.tiles.find(t => t.sid === 'tiling-compat-A');
+      const b = T.tiles.find(t => t.sid === 'tiling-compat-B');
+      await focusTileExt(a.id);
+      const realLoad = window.loadSession;
+      const calls = [];
+      window.loadSession = (sid, opts) => {
+        calls.push({sid, skipExtHooks:!!(opts && opts.skipExtHooks)});
+        if (sid === b.sid) return Promise.reject(new Error('intentional rollback test failure'));
+        return realLoad(sid, opts);
+      };
+      try { await focusTileExt(b.id); }
+      finally { window.loadSession = realLoad; }
+      return {active:T.activeId, expected:a.id, core:S.session.session_id,
+        expectedSid:a.sid, count:T.tiles.length,
+        focused:a.el.classList.contains('ext-tile--focused'),
+        targetFocused:b.el.classList.contains('ext-tile--focused'),
+        msgParent:document.getElementById('msgInner').parentElement.id, calls};
+    }""")
+    _write_json(evidence_dir / "failed-focus-rollback.json", state)
+    if not (state["active"] == state["expected"] and state["core"] == state["expectedSid"]
+            and state["count"] == 2 and state["focused"] and not state["targetFocused"]
+            and state["msgParent"] == "messages"
+            and len(state["calls"]) == 2 and all(c["skipExtHooks"] for c in state["calls"])):
+        raise CompatibilityFailure(f"failed-focus-rollback: {state!r}")
+    _record_screenshot(page, evidence_dir / "failed-focus-rollback.png")
+    _assert_browser_health(case_name="failed-focus-rollback", console_errors=console_errors,
+        page_errors=page_errors, extension_fragments=EXTENSION_RESOURCES, network_events=network_events)
+    return {"status":"passed", "rollback_state":state}
 
-    We seed tile 1 with a real session through the session-open handler path
-    (preload + loaded hook) so it has valid authority. Then we seed tile 2
-    with a session whose loadSession call we make reject via a JS hook.
-    After attempting to focus tile 2, we assert:
-    - activeId is still tile 1 (rollback)
-    - tile 1 has the focused class
-    - tile 2 does NOT have the focused class
-    - #msgInner is still in #messages (not detached)
-    - tile count is unchanged (no tile lost)
-    """
-    case_name = "failed-focus-rollback"
 
-    # Get the tile IDs.
-    tile_ids = page.evaluate(
-        """() => {
-          const tiles = document.querySelectorAll('.ext-tile');
-          return Array.from(tiles).map(t => parseInt(t.dataset.tileId));
-        }"""
-    )
-    if len(tile_ids) < 2:
-        raise CompatibilityFailure(
-            f"{case_name}: expected 2 tiles, found {len(tile_ids)}"
-        )
+def _seed_lifecycle_sessions(core_dir: Path, state_root: Path, bundle_root: Path, manifest: str) -> None:
+    # Use Core's serializer only in the harness-owned state directories. No chat
+    # request/provider is needed to exercise saved-session navigation.
+    env = _sanitized_environment(state_root=state_root, agent_stub=state_root / "agent-stub",
+        extension_root=bundle_root, manifest_relative=manifest, port=0)
+    script = """import os
+from api.models import Session
+for suffix in ('A','B','C'):
+    Session(session_id='tiling-compat-'+suffix, title='Synthetic tile '+suffix,
+        workspace=os.environ['HERMES_WEBUI_DEFAULT_WORKSPACE'],
+        messages=[{'role':'user','content':'Synthetic request '+suffix},
+                  {'role':'assistant','content':'Synthetic answer '+suffix}]).save()
+"""
+    subprocess.run([sys.executable, "-c", script], cwd=core_dir, env=env, check=True,
+                   capture_output=True, text=True)
 
-    tile1_id, tile2_id = tile_ids[0], tile_ids[1]
 
-    # Fix 3: Seed tile 1 through the real session-open handler path so it has
-    # valid authority (sid + session). This ensures the rollback path in
-    # focusTile can actually call loadSession(outgoing.sid) to restore.
-    seed_result = page.evaluate(
-        """(tile1Id) => {
-          const T = window.chatTilingState;
-          if (!T) return false;
-          const tile1 = T.tiles.find(t => t.id === tile1Id);
-          if (!tile1) return false;
-          // Seed through the real session-open handler path (preload + loaded)
-          if (typeof window.handlerRegistration !== 'function') return false;
-          window.handlerRegistration('rollback-session-a', null, { preload: true });
-          window.handlerRegistration('rollback-session-a', { session_id: 'rollback-session-a', title: 'Session A' }, { loaded: true });
-          return true;
-        }""",
-        tile1_id,
-    )
+def _test_real_core_lifecycle(*, page: Any, evidence_dir: Path) -> dict[str, Any]:
+    # Runs production loadSession and real registered Core hooks, not a setter
+    # mock. Only the explicitly synthetic stream boundary/cancel disposition
+    # below is injected; no provider or backend stream is started.
+    checks = page.evaluate("""async () => {
+      const T=chatTilingState, rows=[];
+      const check=(name,pass,details)=>rows.push({name,pass:!!pass,details});
+      const owner=()=>T.tiles.find(t=>t.id===T.activeId)?.sid;
+      const reset=async()=>{
+        S.busy=false;S.activeStreamId=null;
+        for(const t of T.tiles){t.busy=false;t.activeStreamId=null;}
+        if(T.visible)await hideGridExt();
+        await loadSession('tiling-compat-A',{skipExtHooks:true,force:true});
+        await showGridExt(2,1);
+      };
+      await reset();
+      await loadSession('tiling-compat-A');
+      check('same-SID preload-only has no reservation',T.tiles.every(t=>!t._pending));
+      await reset();
+      S.messages=[...S.messages,{role:'assistant',content:'Synthetic late A snapshot'}];
+      await loadSession('tiling-compat-B');
+      const a=T.tiles.find(t=>t.sid==='tiling-compat-A'), b=T.tiles.find(t=>t.sid==='tiling-compat-B');
+      check('preload snapshots outgoing hydrated content',a.messages.some(m=>m.content==='Synthetic late A snapshot'));
+      check('loaded hydrates messages immediately',b.messages.length===S.messages.length&&b.messages.length===2,{tile:b.messages.length,core:S.messages.length});
+      await focusTileExt(a.id);
+      check('internal focus preserves distinct sessions',new Set(T.tiles.map(t=>t.sid)).size===2&&owner()===S.session.session_id);
+      await loadSession('tiling-compat-B');
+      check('existing SID reuses its own tile',owner()==='tiling-compat-B'&&T.activeId===b.id&&T.tiles.filter(t=>t.sid==='tiling-compat-B').length===1);
+      await loadSession('tiling-compat-C');
+      check('full grid veto preserves Core and tile ownership',S.session.session_id==='tiling-compat-B'&&owner()==='tiling-compat-B'&&T.tiles.map(t=>t.sid).sort().join(',')==='tiling-compat-A,tiling-compat-B');
+      await closeTileExt(b.id);
+      check('active close settles surviving Core owner',T.tiles.length===1&&owner()==='tiling-compat-A'&&S.session.session_id==='tiling-compat-A');
 
-    if not seed_result:
-        raise CompatibilityFailure(
-            f"{case_name}: failed to seed tile 1 through handler path"
-        )
+      await reset();
+      const realNotify=window._hermesNotifySessionOpen, realCancel=window.cancelSessionStream;
+      let cancels=0, allow=false;
+      window._hermesNotifySessionOpen=function(sid,data,opts){
+        if(opts?.loaded&&sid==='tiling-compat-B'){S.busy=true;S.activeStreamId='synthetic-stream-B';}
+        return realNotify(sid,data,opts);
+      };
+      window.cancelSessionStream=async session=>{
+        cancels++;
+        check('cancel uses matching snake-case owner',session.session_id==='tiling-compat-B'&&session.active_stream_id==='synthetic-stream-B');
+        if(allow){S.busy=false;S.activeStreamId=null;}
+        return allow;
+      };
+      try {
+        await loadSession('tiling-compat-B');
+        const busy=T.tiles.find(t=>t.sid==='tiling-compat-B');
+        check('loaded busy stream is immediate',busy.busy&&busy.activeStreamId===S.activeStreamId);
+        await closeAllExt();
+        check('close-all refuses immediate busy stream',T.visible&&T.tiles.includes(busy));
+        await closeTileExt(busy.id);
+        check('refused cancel preserves busy tile',cancels===1&&T.tiles.includes(busy));
+        allow=true;
+        await Promise.all([closeTileExt(busy.id),closeTileExt(busy.id)]);
+        check('repeated close is single-flight',cancels===2&&T.tiles.length===1&&owner()===S.session.session_id);
+      } finally {window._hermesNotifySessionOpen=realNotify;window.cancelSessionStream=realCancel;S.busy=false;S.activeStreamId=null;}
 
-    # Now seed tile 2 with a session that will fail to load.
-    page.evaluate(
-        """(tile2Id) => {
-          const T = window.chatTilingState;
-          if (!T) return false;
-          const tile2 = T.tiles.find(t => t.id === tile2Id);
-          if (!tile2) return false;
-          tile2.sid = 'rollback-test-sid';
-          tile2.session = { session_id: 'rollback-test-sid', title: 'Rollback Test' };
-          // Override loadSession to reject for this SID.
-          window.loadSession = (sid) => {
-            if (sid === 'rollback-test-sid') {
-              return Promise.reject(new Error('intentional rollback test failure'));
-            }
-            // For any other SID, resolve normally.
-            return Promise.resolve();
-          };
-          return true;
-        }""",
-        tile2_id,
-    )
-
-    # Attempt to focus tile 2 (should fail and roll back).
-    page.evaluate(
-        """(tile2Id) => {
-          window.focusTileExt(tile2Id);
-        }""",
-        tile2_id,
-    )
-
-    # Wait for the async focus attempt + rollback to settle.
-    page.wait_for_timeout(500)
-
-    # Assert clean rollback state.
-    state = page.evaluate(
-        """(tile1Id) => {
-          const T = window.chatTilingState;
-          const msgInner = document.getElementById('msgInner');
-          const msgParent = msgInner ? msgInner.parentElement : null;
-          const tile1 = document.querySelector(`.ext-tile[data-tile-id="${tile1Id}"]`);
-          const tile1Focused = tile1 ? tile1.classList.contains('ext-tile--focused') : null;
-          // Find the other tile.
-          const allTiles = document.querySelectorAll('.ext-tile');
-          let tile2Focused = null;
-          for (const t of allTiles) {
-            if (parseInt(t.dataset.tileId) !== tile1Id) {
-              tile2Focused = t.classList.contains('ext-tile--focused');
-              break;
-            }
-          }
-          return {
-            activeId: T ? T.activeId : null,
-            tileCount: T ? T.tiles.length : null,
-            tile1Focused,
-            tile2Focused,
-            msgInnerInMessages: msgParent ? msgParent.id === 'messages' : false,
-          };
-        }""",
-        tile1_id,
-    )
-
-    failures: list[str] = []
-    if state.get("activeId") != tile1_id:
-        failures.append(f"activeId={state.get('activeId')!r}, expected {tile1_id}")
-    if state.get("tile1Focused") is not True:
-        failures.append(f"tile1 focused={state.get('tile1Focused')!r}, expected True")
-    if state.get("tile2Focused") is not False:
-        failures.append(f"tile2 focused={state.get('tile2Focused')!r}, expected False")
-    if state.get("msgInnerInMessages") is not True:
-        failures.append(
-            f"#msgInner in #messages={state.get('msgInnerInMessages')!r}, expected True"
-        )
-    if state.get("tileCount") != 2:
-        failures.append(f"tileCount={state.get('tileCount')!r}, expected 2")
-
+      await reset();await loadSession('tiling-compat-B');
+      const target=T.tiles.find(t=>t.sid==='tiling-compat-A');
+      const realLoad=window.loadSession;let release;
+      window.loadSession=()=>new Promise(resolve=>{release=resolve});
+      try{
+        const pending=focusTileExt(target.id);
+        await new Promise(resolve=>setTimeout(resolve,10));
+        await realLoad('tiling-compat-B',{force:true});
+        release();await pending;
+        check('interrupted focus respects newer actual loaded owner',owner()==='tiling-compat-B'&&S.session.session_id===owner());
+      }finally{window.loadSession=realLoad;}
+      check('toolbar is outside desktop drag region',getComputedStyle(document.getElementById('ext-tiling-toolbar')).webkitAppRegion==='no-drag'&&[...document.querySelectorAll('#ext-tiling-toolbar button')].every(el=>getComputedStyle(el).webkitAppRegion==='no-drag'));
+      return rows;
+    }""")
+    _write_json(evidence_dir / "real-core-lifecycle.json", checks)
+    failures = [c["name"] for c in checks if not c["pass"]]
     if failures:
-        _record_screenshot(page, evidence_dir / f"{case_name}.png")
-        raise CompatibilityFailure(
-            f"{case_name}: rollback left dirty state: {'; '.join(failures)}"
-        )
-
-    _record_screenshot(page, evidence_dir / f"{case_name}.png")
-    _assert_browser_health(
-        case_name=case_name,
-        console_errors=console_errors,
-        page_errors=page_errors,
-        extension_fragments=EXTENSION_RESOURCES,
-        network_events=network_events,
-    )
-    return {"status": "passed", "rollback_state": state}
+        raise CompatibilityFailure(f"real-core-lifecycle: {failures!r}")
+    viewports = []
+    await_js = """async () => {await showGridExt(2,2);return true;}"""
+    page.evaluate(await_js)
+    for name, width, height in (("desktop",1440,900),("narrow",768,1024),("mobile-width",390,844)):
+        page.set_viewport_size({"width":width,"height":height})
+        geometry = page.evaluate("""() => {
+          const tb=document.getElementById('ext-tiling-toolbar').getBoundingClientRect();
+          const cells=[...document.querySelectorAll('.ext-tile')].map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right}});
+          return {toolbar:{x:tb.x,right:tb.right,width:tb.width},cells};
+        }""")
+        if (geometry["toolbar"]["x"] < 0 or geometry["toolbar"]["right"] > width
+                or len(geometry["cells"]) != 4
+                or len({(c["x"],c["y"]) for c in geometry["cells"]}) != 4
+                or any(c["width"] <= 0 or c["height"] <= 0 or c["right"] > width for c in geometry["cells"])):
+            raise CompatibilityFailure(f"real-core-lifecycle {name}: {geometry!r}")
+        _record_screenshot(page,evidence_dir / f"lifecycle-{name}.png")
+        viewports.append({"name":name,"width":width,"height":height,**geometry})
+    page.set_viewport_size({"width":1440,"height":1000})
+    return {"status":"passed","checks":checks,"viewports":viewports,"stream":"synthetic boundary; no provider"}
 
 
 # ---------------------------------------------------------------------------
@@ -657,12 +668,14 @@ def main() -> int:
                     requested_port=args.port,
                 )
                 results["port"] = port
+                _seed_lifecycle_sessions(core_dir, state_root, bundle_root, manifest_relative)
 
                 from playwright.sync_api import sync_playwright
 
                 with sync_playwright() as playwright:
                     browser = playwright.chromium.launch(
                         headless=True,
+                        executable_path=os.environ.get("CHAT_TILING_CHROMIUM") or None,
                         args=["--no-sandbox", "--disable-dev-shm-usage"],
                     )
                     context = browser.new_context(
@@ -694,6 +707,12 @@ def main() -> int:
                     try:
                         _boot_page(page, base_url)
                         _wait_for_extension_resource(page, base_url)
+
+                        lifecycle = _test_real_core_lifecycle(page=page, evidence_dir=evidence_dir)
+                        results["cases"]["real-core-lifecycle"] = lifecycle
+                        _write_json(results_path, results)
+                        await_grid = "async () => {await hideGridExt();await showGridExt(2,1);}"
+                        page.evaluate(await_grid)
 
                         # Activate the 2-tile grid via the toolbar.
                         _activate_grid(page, cols=2, rows=1)
