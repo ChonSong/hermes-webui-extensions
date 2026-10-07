@@ -463,6 +463,7 @@
   }
 
   async function _focusTileImpl(id,opts,myOpGen){
+    if(myOpGen!==T._opGen)return;
     opts=opts||{};
     const tile=tid(id);
     if(!tile){
@@ -564,7 +565,7 @@
         if(!ok)return; // Cancellation refused — preserve tile
         // External Core navigation is not on our queue. It may rebind this
         // tile or start a new stream while the old cancellation is pending.
-        if(tid(id)!==tile||tile.sid!==cancelSid||tile.session!==cancelSession||
+        if(myOpGen!==T._opGen||tid(id)!==tile||tile.sid!==cancelSid||tile.session!==cancelSession||
            (tile.activeStreamId&&tile.activeStreamId!==cancelStream))return;
         snapshotLive(tile);
         if(tile.session!==cancelSession||

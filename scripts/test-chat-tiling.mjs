@@ -1051,6 +1051,7 @@ async function main() {
     h.window.focusTileExt(parseInt(tiles[3].dataset.tileId));
     await settle();
 
+    const savedD = JSON.stringify(h.window.chatTilingState.tiles[3].messages);
     // Make loadSession fail for D — the retained active tile whose settle must
     // succeed before the removal is committed.
     const origLoad = h.window.loadSession;
@@ -1068,10 +1069,11 @@ async function main() {
     await h.window.showGridExt(1, 2);
     await settle();
 
-    // Layout change aborted — still 4 tiles, D still active
+    // Layout change aborted — keep membership and cached D, with no live claim.
     const remaining = Array.from(h.document.querySelectorAll('.ext-tile'));
     assert(remaining.length === 4, 'layout change aborted: still 4 tiles after successor focus failure');
-    assert(h.window.chatTilingState.activeId === parseInt(tiles[3].dataset.tileId), 'D still active after abort');
+    assert(h.window.chatTilingState.activeId === null && !h.document.querySelector('.ext-tile--focused'), 'failed D load and rollback leave snapshots without live ownership');
+    assert(JSON.stringify(h.window.chatTilingState.tiles[3].messages) === savedD, 'failed forced reload preserves cached D transcript');
   }
 
   // ══ Re-gate regression tests (PR#60 review at 2c4e6a11) ══
@@ -1370,6 +1372,33 @@ async function main() {
         `${disposition}: late old cancellation preserves current tile and Core owner`);
       if (disposition === 'replacement-stream') assert(b.activeStreamId === 'new-stream-B', 'new stream ownership is hydrated before post-cancel guard');
     }
+  }
+
+  section('R20: accepted pending navigation fences a late cancellation continuation');
+  {
+    const h = createFreshDom();
+    const core = installTwoPhaseCore(h);
+    await h.window.loadSession('sid-A');
+    await h.window.showGridExt(2, 1);
+    core.sessions.set('sid-B', { messages: ['B'], busy: true, stream: 'old-stream-B' });
+    await h.window.loadSession('sid-B');
+    const st = h.window.chatTilingState;
+    const b = st.tiles.find(t => t.sid === 'sid-B');
+    let release;
+    h.window.cancelSessionStream = () => new Promise(resolve => { release = resolve; });
+    const closing = h.window.closeTileExt(b.id);
+    await sleep(5);
+    h.window.__settings.auto_tile = false;
+    h.window.handlerRegistration('sid-C', null, { preload: true });
+    const before = core.phases.length;
+    h.S.busy = false;
+    h.S.activeStreamId = null;
+    release(true);
+    await closing;
+    assert(core.phases.length === before && st.tiles.includes(b), 'late cancellation cannot start a successor load over pending C');
+    assert(!h.document.querySelector('.ext-tile--focused'), 'pending C retains cached snapshots without a false live claim');
+    await h.window.loadSession('sid-C');
+    assert(b.sid === 'sid-C' && h.S.session.session_id === 'sid-C', 'accepted navigation can still complete normally');
   }
 
   section('R17: external loaded disposition interrupts layout settle safely');
