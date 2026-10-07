@@ -323,6 +323,7 @@
       if(t.el){
         t.el.classList.toggle('ext-tile--focused',t.id===T.activeId);
         t.el.classList.toggle('ext-tile--empty',!t.sid);
+        updateHeader(t);
       }
     });
     syncMaxVisibility();
