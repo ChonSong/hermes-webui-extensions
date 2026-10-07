@@ -195,6 +195,12 @@ jobs:
           COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
         run: python tests/compatibility/chat_tiling_smoke.py
 
+      - name: Run Chat Tiling real Core transaction regressions
+        env:
+          HERMES_CORE_DIR: .ci/hermes-webui-core
+          COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
+        run: python tests/compatibility/tiling_transactions_smoke.py
+
       - name: Run Custom User Avatar visual browser compatibility smoke
         env:
           HERMES_CORE_DIR: .ci/hermes-webui-core

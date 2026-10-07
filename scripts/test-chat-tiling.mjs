@@ -443,8 +443,8 @@ async function main() {
     assert(h.S.session.session_id === 'sid-B', 'B session restored on hide');
   }
 
-  // S15: preload vetoes navigation when no tile can take the session
-  section('S15: preload vetoes navigation when no tile can take the session');
+  // S15: closing the last bound tile restores ordinary Core navigation.
+  section('S15: last bound close restores ordinary Core navigation');
   {
     const h = createFreshDom();
     h.window.__settings.auto_tile = false;
@@ -454,14 +454,14 @@ async function main() {
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
     const st = h.window.chatTilingState;
 
-    // Close the only bound tile. No tile owns Core's session and auto-tiling is
-    // off, so there is nothing to rebind — Core must be vetoed instead of
-    // navigating with no tile bound to the session it loaded.
+    // With no successor, remove the overlay rather than leaving its composer
+    // owned by a removed session. Ordinary Core navigation is available again.
     h.window.closeTileExt(parseInt(tiles[0].dataset.tileId));
     await settle();
     assert(st.activeId === null, 'no active tile after closing the only bound tile');
-    const vetoed = h.window.handlerRegistration('sid-B', null, { preload: true });
-    assert(vetoed && vetoed.cancel === true, 'preload vetoes navigation with no available destination');
+    assert(!st.visible && !h.document.getElementById('ext-tile-grid'), 'last bound close tears down overlay');
+    const ordinary = h.window.handlerRegistration('sid-B', null, { preload: true });
+    assert(!(ordinary && ordinary.cancel === true), 'ordinary Core navigation is no longer vetoed');
 
     // With auto-tiling on, a destination is always reserved — navigation proceeds.
     h.window.__settings.auto_tile = true;
@@ -1197,6 +1197,8 @@ async function main() {
     setSession(h, 'sid-A', 'Session A', ['a']);
     h.window.showGridExt(2, 2);
     await settle();
+    await bindTileViaHook(h, 'sid-B', ['b']);
+    await h.window.focusTileExt(h.window.chatTilingState.tiles[0].id);
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
     tiles[0].querySelector('.ext-tile-maximize-btn').click();
     await settle();

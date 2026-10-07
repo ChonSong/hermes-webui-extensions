@@ -11,10 +11,20 @@ as static snapshots.
 
 - **Layouts** — 2-column (horizontal split), 4-corner (2×2 grid), 6-tile (3×2 grid)
 - **Session snapshots** — each tile renders a session's messages via `window.renderTranscript()`
-- **Focus switching** — click any *bound* tile to make it the active composer/model context; the outgoing tile's state is saved, the incoming tile's session is loaded via `window.loadSession()`
+- **Focus switching** — click a *bound* tile or focus its region and press Enter/Space to make it the active composer/model context; the outgoing tile's state is saved, the incoming tile's session is loaded via `window.loadSession()`
 - **Maximize** — expand one tile to fill the entire grid; restore with one click
 - **Session restore** — click any sidebar session to load it into the next free tile (when auto-tile is enabled); with auto-tile off the focused tile follows Core instead of reserving a slot
 - **Graceful close** — cancels in-flight streaming before removing the tile
+
+Closing the active tile loads its bound successor before removing it. If that
+load fails, the original tile stays. Closing the last bound tile returns to the
+ordinary Core transcript with its session and draft intact. The toolbar's
+Close tiling action only hides the overlay; it leaves running streams alone.
+
+Review boundary: cancellation still depends on Core's stream-owned cleanup
+(nesquena/hermes-webui#7993). The transparent focused-cell design still needs a
+fitted live-pane contract and populated narrow-screen visual acceptance. The
+transaction and keyboard fixes do not make these outstanding gates pass.
 
 ## How It Works
 
@@ -67,7 +77,20 @@ Key invariants:
 - **switchLayout() rearranges grid only** — doesn't touch #msgInner
 - **hideGrid() removes overlay** — focused tile's session stays as the live session
 - **All mutations are serialized** — focus/close/layout/hide run as single
-  transactions on one queue, so two mutators can never interleave
+  transactions on one queue. Generation advances when a transaction starts,
+  so a queued layout action cannot invalidate a focus load already in progress.
+
+Real Core transaction regression check (isolated state, no agent/model/cancel):
+
+```bash
+HERMES_CORE_DIR=/path/to/hermes-webui python tests/compatibility/tiling_transactions_smoke.py
+```
+
+This imports two transcripts through Core's HTTP API and checks exact Core/tile
+SID, displayed body, draft restoration, delayed focus plus layout, double hide,
+hide followed by layout, failed/successful successor, last bound close, and
+keyboard activation/state. The delayed/rejected cases wrap the real Core
+`loadSession`; they do not certify cancellation cleanup or pane geometry.
 
 ```text
 ┌─────────────────────────────────────────────┐

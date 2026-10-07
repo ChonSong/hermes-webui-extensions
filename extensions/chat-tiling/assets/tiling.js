@@ -36,7 +36,8 @@
   // ── Operation queue ──
   // Every transaction (focus, close, layout, hide) enqueues through _focusOp so
   // two mutators never overlap. _opGen fences commits: a transaction whose
-  // captured generation is stale discards its result.
+  // admitted generation is stale discards its result. Waiting transactions
+  // must not invalidate a load that already owns the queue and Core's session.
   //
   // Two rules keep this deadlock-free and non-corrupting:
   //  1. A transaction calls the private `_*Impl` functions directly. It MUST
@@ -48,9 +49,7 @@
   //     transaction keeps its slot until it finishes — releasing the queue
   //     while a mutator is still live would let two mutators interleave.
   function enqueueOp(fn){
-    T._opGen++;
-    const myOpGen=T._opGen;
-    const run=T._focusOp.then(()=>fn(myOpGen));
+    const run=T._focusOp.then(()=>fn(++T._opGen));
     T._focusOp=run.then(()=>{},()=>{});
     let timerId=null;
     const deadline=new Promise((resolve)=>{
@@ -83,11 +82,11 @@
 .ext-tile.ext-tile--empty .ext-tile-titlebar{pointer-events:auto}
 .ext-tile--maximized{grid-area:1/1/-1/-1!important;z-index:2}
 .ext-tile--hidden{display:none}
-.ext-tile-titlebar{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);background:var(--bg-secondary)}
+.ext-tile-titlebar{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);background:var(--surface)}
 .ext-tile--focused .ext-tile-titlebar{background:transparent}
 .ext-tile-title{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:none;min-width:0}
 .ext-tile-btn{background:none;border:1px solid transparent;border-radius:6px;color:var(--text);cursor:pointer;padding:2px;display:flex;align-items:center;justify-content:center;line-height:1;opacity:.7;transition:opacity .15s}
-.ext-tile-btn:hover{opacity:1;background:var(--bg-hover)}
+.ext-tile-btn:hover{opacity:1;background:var(--hover-bg)}
 .ext-tile-btn-sq{width:24px;height:24px}
 .ext-tile-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
 .ext-tile-msg-inner{flex:1;min-height:0;padding:0;display:flex;flex-direction:column}
@@ -96,8 +95,8 @@
 #ext-tiling-toolbar{display:flex;gap:4px;align-items:center;margin-left:auto}
 #ext-tiling-toolbar,#ext-tiling-toolbar button{-webkit-app-region:no-drag}
 #ext-tiling-toolbar.ext-tiling-toolbar--hidden{display:none}
-.ext-toolbar-btn{background:none;border:1px solid transparent;border-radius:6px;color:var(--text-secondary);cursor:pointer;padding:4px 8px;display:flex;align-items:center;justify-content:center;line-height:1;opacity:.7;transition:opacity .15s;font-size:12px;white-space:nowrap}
-.ext-toolbar-btn:hover{opacity:1;background:var(--bg-hover)}
+.ext-toolbar-btn{background:none;border:1px solid transparent;border-radius:6px;color:var(--muted);cursor:pointer;padding:4px 8px;display:flex;align-items:center;justify-content:center;line-height:1;opacity:.7;transition:opacity .15s;font-size:12px;white-space:nowrap}
+.ext-toolbar-btn:hover{opacity:1;background:var(--hover-bg)}
 @media(pointer:coarse){.ext-tile-btn,.ext-toolbar-btn{min-width:44px;min-height:44px}}
   `;
 
@@ -190,6 +189,9 @@
 
   function updateHeader(t){
     if(!t.el)return;
+    t.el.tabIndex=t.sid?0:-1;
+    t.el.setAttribute('aria-label',`Chat tile ${t.id} — ${t.session?.title||t.sid||'empty'}${t.id===T.activeId?' — focused':''}`);
+    t.el.setAttribute('aria-current',String(t.id===T.activeId));
     const title=t.el.querySelector('.ext-tile-title');
     if(title){
       title.textContent=t.session?t.session.title||t.sid:'Empty tile';
@@ -262,6 +264,11 @@
       // Unbound tiles are not focusable: focusing one would leave Core pointed
       // at its previous session while the tile claims authority.
       if(!t.sid)return;
+      focusTile(t.id);
+    });
+    el.addEventListener('keydown',(e)=>{
+      if(e.target!==el||!t.sid||(e.key!=='Enter'&&e.key!==' '))return;
+      e.preventDefault();
       focusTile(t.id);
     });
     el.querySelector('.ext-tile-close-btn').addEventListener('click',async(e)=>{
@@ -396,8 +403,8 @@
       const isFocused=t.id===tile.id;
       t.el.classList.toggle('ext-tile--focused',isFocused);
       if(!isFocused)renderSnapshot(t);
+      updateHeader(t);
     });
-    tile.el.setAttribute('aria-label',`Chat tile ${tile.id} — focused`);
     rc(tile);
     startWatcher();
     if(typeof window.syncTopbar==='function')window.syncTopbar();
@@ -537,29 +544,31 @@
            (tile.activeStreamId&&tile.activeStreamId!==cancelStream))return;
       }
 
-      // Invalidate pending focus on the removed tile
-      T._focusGen++;
-
-      // Remove from state
-      const removed=T.tiles.splice(idx,1)[0];
-      if(removed.el)removed.el.remove();
-      if(removed.maximized)syncMaxVisibility();
-
-      // If we were focused, move focus to a tile that actually has a session,
-      // so Core's composer can never point at a different conversation than the
-      // focused tile. Closing one tile is not a request to tear down the grid,
-      // so if no bound tile remains the overlay stays with no active tile.
+      const restoreKeyboard=tile.el?.contains(document.activeElement);
+      const closingSid=tile.sid;
+      // Settle the live successor before removing the current owner. A failed
+      // load preserves the tile and its draft; the queue remains held throughout.
       if(T.activeId===id){
-        T.activeId=null;
-        const next=T.tiles.find(t=>t.sid)||null;
+        const next=T.tiles.find(t=>t!==tile&&t.sid)||null;
         if(next){
-          // Same transaction — never re-enqueue (that self-deadlocks).
-          await _focusTileImpl(next.id,{force:true},myOpGen);
+          try{await _focusTileImpl(next.id,{force:true,throwOnFailure:true},myOpGen);}
+          catch(_){return;}
+          const s=getS();
+          if(T.activeId!==next.id||!s?.session||s.session.session_id!==next.sid)return;
         }else{
-          stopWatcher();
+          // Last bound tile: leave Core and its composer intact in ordinary view.
+          await _hideGridImpl(myOpGen);
+          if(restoreKeyboard)document.querySelector('#ext-tiling-toolbar button')?.focus();
+          return;
         }
       }
+      if(myOpGen!==T._opGen||tid(id)!==tile||tile.sid!==closingSid)return;
+      T._focusGen++;
+      T.tiles.splice(T.tiles.indexOf(tile),1);
+      tile.el?.remove();
+      if(tile.maximized)syncMaxVisibility();
       refreshTileGrid();
+      if(restoreKeyboard)(at()?.el||document.querySelector('#ext-tiling-toolbar button'))?.focus();
     }finally{
       T._closing.delete(id);
     }
@@ -587,15 +596,12 @@
   }
 
   async function _hideGridImpl(myOpGen){
-    if(!T.visible)return;
+    if(myOpGen!==T._opGen||!T.visible)return;
     T.visible=false;
     stopWatcher();
 
     // Invalidate any pending focus so a late focus success/failure is a no-op
     T._focusGen++;
-
-    // Commit only if this operation is still current
-    if(myOpGen!==T._opGen)return;
 
     // Core already has the focused tile's session loaded (it was the last one focused).
     // No need to write tile cache over Core's current S — that would republish stale state.
@@ -637,9 +643,13 @@
     if(T._w){clearInterval(T._w);T._w=null;}
   }
 
-  async function showGrid(cols,rows){
+  function showGrid(cols,rows){
+    return enqueueOp((myOpGen)=>_showGridImpl(cols,rows,myOpGen));
+  }
+
+  async function _showGridImpl(cols,rows,myOpGen){
     if(T.visible&&T._cols===cols&&T._rows===rows)return;
-    if(T.visible){await switchLayout(cols,rows);return;}
+    if(T.visible){await _switchLayoutImpl(cols,rows,myOpGen);return;}
     T._cols=cols;T._rows=rows;T.visible=true;
 
     // Save current Core state (for rollback if needed)
@@ -696,7 +706,7 @@
 
     // Focus first tile. Core already holds this session, so no swap is needed.
     if(T.tiles.length>0){
-      await focusTile(T.tiles[0].id,{alreadyLoaded:true});
+      await _focusTileImpl(T.tiles[0].id,{alreadyLoaded:true},myOpGen);
     }
   }
 
