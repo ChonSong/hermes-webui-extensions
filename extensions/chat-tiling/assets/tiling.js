@@ -269,8 +269,10 @@
     el.addEventListener('keydown',(e)=>{
       if(e.target!==el||!t.sid||(e.key!=='Enter'&&e.key!==' '))return;
       e.preventDefault();
+      e.stopPropagation();
       focusTile(t.id);
     });
+    el.querySelectorAll('button').forEach(isolateActivationKeys);
     el.querySelector('.ext-tile-close-btn').addEventListener('click',async(e)=>{
       e.stopPropagation();
       await closeTile(t.id);
@@ -452,49 +454,41 @@
     const outgoing=at();
     if(outgoing&&outgoing!==tile){sc(outgoing);snapshotLive(outgoing);}
 
-    // If tile has a session, swap Core's session via loadSession.
-    // Skip when alreadyLoaded (Core already has this session — loaded hook).
-    if(tile.sid&&!opts.alreadyLoaded&&typeof window.loadSession==='function'){
-      try{
+    try{
+      // Core can catch a failed load and resolve after clearing the transcript.
+      // Both a rejection and a resolved load without ownership need rollback.
+      if(tile.sid&&!opts.alreadyLoaded&&typeof window.loadSession==='function'){
         await window.loadSession(tile.sid,{skipExtHooks:true});
-      }catch(e){
-        // A newer focus may have superseded us — don't roll back over a newer winner.
         if(myGen!==T._focusGen)return;
-        // Own the rollback with the same operation identity.
-        T._focusGen++;
-        const rbGen=T._focusGen;
-        if(outgoing&&outgoing.sid){
-          try{await window.loadSession(outgoing.sid,{skipExtHooks:true});}catch(_){}
-        }
-        // After await, check if a newer focus superseded us
-        if(rbGen!==T._focusGen)return;
-        const rollbackS=getS();
-        if(myOpGen===T._opGen&&outgoing&&outgoing.sid&&
-           (!rollbackS||!rollbackS.session||rollbackS.session.session_id!==outgoing.sid)){
-          // A failed rollback cannot leave the outgoing tile claiming a live
-          // session Core no longer owns.
+      }
+      if(myOpGen!==T._opGen)return;
+      const settled=getS();
+      if(tile.sid&&(!settled||!settled.session||settled.session.session_id!==tile.sid)){
+        throw new Error('Tile session did not become the live Core session');
+      }
+    }catch(e){
+      // Never roll back over a newer focus or an invalidated operation.
+      if(myGen!==T._focusGen||myOpGen!==T._opGen)return;
+      const rbGen=++T._focusGen;
+      if(outgoing&&outgoing.sid){
+        // A failed metadata load may leave S.session pointing to the outgoing
+        // SID with its transcript erased. Bypass Core's same-SID fast return.
+        try{await window.loadSession(outgoing.sid,{skipExtHooks:true,force:true});}catch(_){}
+      }
+      if(rbGen!==T._focusGen||myOpGen!==T._opGen)return;
+      const rollbackS=getS();
+      if(outgoing&&outgoing.sid){
+        if(!rollbackS||!rollbackS.session||rollbackS.session.session_id!==outgoing.sid){
           T.activeId=null;
           refreshTileGrid();
           renderSnapshot(outgoing);
           stopWatcher();
+        }else{
+          snapshotLive(outgoing);
+          _commitFocus(outgoing);
         }
-        // Callers that must not proceed on a failed swap (the layout settle
-        // path) opt in to seeing the rejection.
-        if(opts.throwOnFailure)throw e;
-        return;
       }
-      // After await, check if a newer focus superseded us
-      if(myGen!==T._focusGen)return;
-    }
-
-    // Commit only if this operation is still current
-    if(myOpGen!==T._opGen)return;
-
-    // Core may return undefined after a veto or a superseded load. A resolved
-    // promise does not establish ownership of the requested session.
-    const settled=getS();
-    if(tile.sid&&(!settled||!settled.session||settled.session.session_id!==tile.sid)){
-      if(opts.throwOnFailure)throw new Error('Tile session did not become the live Core session');
+      if(opts.throwOnFailure)throw e;
       return;
     }
     snapshotLive(tile);
@@ -894,6 +888,14 @@
   }
 
   // ── Initialization ──
+  function isolateActivationKeys(button){
+    // Preserve native button activation while keeping Core's document-level
+    // approval shortcut from interpreting the same Enter/Space keystroke.
+    button.addEventListener('keydown',(e)=>{
+      if(e.key==='Enter'||e.key===' ')e.stopPropagation();
+    });
+  }
+
   function init(){
     // Feature-detect required Core APIs
     if(!document.getElementById('msgInner'))return;
@@ -913,6 +915,7 @@
       <button class="ext-toolbar-btn" data-layout="close" aria-label="Close tiling" title="Close tiling">${SVG_ICON.close}</button>
     `;
     toolbar.querySelectorAll('[data-layout]').forEach(btn=>{
+      isolateActivationKeys(btn);
       btn.addEventListener('click',async()=>{
         const layout=btn.dataset.layout;
         if(layout==='close'){

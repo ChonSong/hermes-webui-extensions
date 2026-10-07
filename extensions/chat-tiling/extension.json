@@ -32,7 +32,7 @@
     },
     "storage": {
       "owned": true,
-      "shared_webui_keys": ["hermes-webui-inflight-state"]
+      "shared_webui_keys": ["hermes-webui-inflight-state", "hermes-webui-inflight"]
     },
     "loopback_sidecar": false,
     "native_host": false,

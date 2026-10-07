@@ -8,6 +8,7 @@ import json
 import sys
 import os
 from pathlib import Path
+from urllib.parse import urlsplit, parse_qs
 from playwright.sync_api import sync_playwright
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -24,14 +25,27 @@ results=[]
 try:
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True,executable_path=os.environ.get('HERMES_REVIEW_BROWSER_EXECUTABLE'))
-        ctx=browser.new_context(viewport={'width':1440,'height':1000})
-        ctx.route('**/*',lambda r:r.continue_() if r.request.url.startswith(url) else r.abort())
+        approval_requests=[]
+        fault_requests=[]
+        def block_approval(route):
+            # Synthetic cards only. No approval response reaches the backend,
+            # including the positive control proving the trap is observable.
+            approval_requests.append(route.request.post_data_json)
+            route.fulfill(status=409,json={'error':'Synthetic approval trap; no authorization performed'})
+        def open_context():
+            context=browser.new_context(viewport={'width':1440,'height':1000},service_workers='block')
+            events=smoke._install_network_guards(context)
+            context.route('**/api/approval/respond',block_approval)
+            return context,events
+        ctx,network_events=open_context()
         sids=[]
         for name in ['A','B']:
             d=ctx.request.post(url+'/api/session/import',data={'title':'Regression '+name,'messages':[{'role':'user','content':'Question '+name},{'role':'assistant','content':'Body '+name+'\n\n'+('Long content for real native rendering. '*30)+'\n\n```js\nconst x = 1;\n```'}]}).json()
             assert d.get('ok'),d
             sids.append(d['session']['session_id'])
         page=ctx.new_page()
+        page_errors=[]
+        page.on('pageerror',lambda error:page_errors.append(str(error)))
         page.goto(url)
         page.wait_for_selector('#ext-tiling-toolbar')
         page.wait_for_timeout(1000)
@@ -47,7 +61,15 @@ try:
         }"""
         owner="""() => {const t=chatTilingState.tiles.find(t=>t.id===chatTilingState.activeId);return {core:S.session?.session_id,tile:t?.sid,draft:document.querySelector('#msg').value,body:document.querySelector('#msgInner').textContent,visible:chatTilingState.visible,grid:!!document.querySelector('#ext-tile-grid'),count:chatTilingState.tiles.length};}"""
         def fresh():
-            page.reload()
+            global ctx,page,network_events
+            smoke._assert_browser_health(case_name='tiling transactions',console_errors=[],page_errors=page_errors,
+                extension_fragments=('chat-tiling',),network_events=network_events)
+            ctx.close()
+            ctx,network_events=open_context()
+            page=ctx.new_page()
+            page_errors.clear()
+            page.on('pageerror',lambda error:page_errors.append(str(error)))
+            page.goto(url)
             page.wait_for_selector('#ext-tiling-toolbar')
             page.wait_for_timeout(1000)
             page.evaluate('sids=>window.reviewSids=sids',sids)
@@ -101,6 +123,71 @@ try:
         r=page.evaluate(owner)
         recovered=page.evaluate('()=>document.activeElement===chatTilingState.tiles.find(t=>t.id===chatTilingState.activeId)?.el')
         results.append({'case':'keyboard close recovers focus to live successor','pass':recovered and r['core']==sids[0] and r.get('tile')==sids[0],'state':r})
+        # Core catches HTTP metadata failures and resolves loadSession after
+        # clearing the old transcript. Exercise the real producer, not a
+        # Promise.reject replacement. Both focus and active-close must restore A.
+        def fail_metadata(route):
+            query=parse_qs(urlsplit(route.request.url).query)
+            if query.get('session_id')==[sids[1]] and query.get('messages')==['0']:
+                fault_requests.append(route.request.url)
+                route.fulfill(status=503,json={'error':'Controlled metadata failure'})
+            else:
+                route.fallback()
+        for action in ['focus','close']:
+            fresh()
+            ctx.route('**/api/session?*',fail_metadata)
+            requests_before=len(fault_requests)
+            page.evaluate("""async action=>{const b=chatTilingState.tiles.find(t=>t.sid===reviewSids[1]);
+              if(action==='focus')await focusTileExt(b.id);else await closeTileExt(chatTilingState.activeId);
+            }""",action)
+            r=page.evaluate(owner)
+            results.append({'case':f'real metadata failure during {action} restores original transcript',
+                'pass':len(fault_requests)>requests_before and r['count']==2 and r['core']==sids[0]
+                    and r.get('tile')==sids[0] and r['draft']=='draft-A' and 'Body A' in r['body'], 'state':r})
+        # Use Core's actual approval card and document shortcut with a fake ID.
+        # The route trap above is installed before any page is navigated.
+        def synthetic_approval():
+            page.evaluate("""()=>{stopApprovalPolling();showApprovalForSession(S.session.session_id,
+              {approval_id:'synthetic-tiling-only',tool_name:'synthetic',description:'No backend approval exists'},1);}""")
+            page.wait_for_timeout(100)
+            assert page.locator('#approvalCard').evaluate("e=>e.classList.contains('visible')")
+        fresh()
+        synthetic_approval()
+        before=len(approval_requests)
+        page.locator('.app-titlebar-title').evaluate("e=>{e.tabIndex=0;e.focus()}")
+        page.keyboard.press('Enter')
+        page.wait_for_timeout(250)
+        results.append({'case':'approval trap observes and blocks Core shortcut positive control',
+            'pass':len(approval_requests)==before+1,'blockedRequests':len(approval_requests)-before})
+        selectors=['.ext-tile-title', '.ext-tile-close-btn', '.ext-tile-maximize-btn',
+            '#ext-tiling-toolbar [data-layout="4"]','#ext-tiling-toolbar [data-layout="close"]']
+        for selector in selectors:
+            for key in ['Enter','Space']:
+                fresh()
+                synthetic_approval()
+                before=len(approval_requests)
+                if selector=='.ext-tile-title':
+                    target=page.locator('.ext-tile').nth(1)
+                else:
+                    target=page.locator(selector).first
+                target.focus()
+                target.press(key)
+                page.wait_for_timeout(250)
+                results.append({'case':f'{selector} {key} cannot approve a tool call',
+                    'pass':len(approval_requests)==before,'approvalRequests':len(approval_requests)-before})
+        smoke._assert_browser_health(case_name='tiling final',console_errors=[],page_errors=page_errors,
+            extension_fragments=('chat-tiling',),network_events=network_events)
+        # Negative checks for both transport guards. These controlled probes
+        # happen after normal-operation egress assertions and must stay blocked.
+        # A blank page avoids Core's CSP rejecting the HTTP probe before the
+        # shared route can observe it. This remains the guarded context.
+        guard_page=ctx.new_page()
+        guard_page.evaluate("""async()=>{await fetch('https://example.invalid/tiling-guard-probe').catch(()=>{});
+          window.guardProbeSocket=new WebSocket('wss://example.invalid/tiling-guard-probe');}""")
+        guard_page.wait_for_timeout(150)
+        results.append({'case':'shared HTTP and WebSocket guards block deliberate off-origin probes',
+            'pass':len(network_events['unexpected_http'])==1 and len(network_events['unexpected_websockets'])==1,
+            'networkEvents':network_events})
         (out/'results.json').write_text(json.dumps(results,indent=2))
         print(json.dumps([{k:v for k,v in r.items() if k not in ['state']} for r in results],indent=2))
         browser.close()

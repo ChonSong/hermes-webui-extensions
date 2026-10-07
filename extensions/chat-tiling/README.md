@@ -89,8 +89,14 @@ HERMES_CORE_DIR=/path/to/hermes-webui python tests/compatibility/tiling_transact
 This imports two transcripts through Core's HTTP API and checks exact Core/tile
 SID, displayed body, draft restoration, delayed focus plus layout, double hide,
 hide followed by layout, failed/successful successor, last bound close, and
-keyboard activation/state. The delayed/rejected cases wrap the real Core
-`loadSession`; they do not certify cancellation cleanup or pane geometry.
+keyboard activation/state. A real HTTP metadata failure checks that both focus
+and active close force-reload the outgoing transcript even when Core resolves
+the failed load. Synthetic approval cards exercise Core's document shortcut;
+every approval response is intercepted, and tile/toolbar Enter and Space must
+produce zero responses. HTTP and WebSocket guards block off-origin requests,
+and service workers are disabled before navigation. The delayed/rejected cases
+wrap the real Core `loadSession`; these checks do not certify cancellation
+cleanup or pane geometry.
 
 ```text
 ┌─────────────────────────────────────────────┐
