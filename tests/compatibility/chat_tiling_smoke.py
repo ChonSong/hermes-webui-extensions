@@ -485,7 +485,7 @@ def _test_failed_focus_rollback(
       const realLoad = window.loadSession;
       const calls = [];
       window.loadSession = (sid, opts) => {
-        calls.push({sid, skipExtHooks:!!(opts && opts.skipExtHooks)});
+        calls.push({sid, skipExtHooks:!!opts?.skipExtHooks, force:!!opts?.force, hookToken:!!opts?._chatTilingLoad});
         if (sid === b.sid) return Promise.reject(new Error('intentional rollback test failure'));
         return realLoad(sid, opts);
       };
@@ -501,7 +501,7 @@ def _test_failed_focus_rollback(
     if not (state["active"] == state["expected"] and state["core"] == state["expectedSid"]
             and state["count"] == 2 and state["focused"] and not state["targetFocused"]
             and state["msgParent"] == "messages"
-            and len(state["calls"]) == 2 and all(c["skipExtHooks"] for c in state["calls"])):
+            and len(state["calls"]) == 2 and all(not c["skipExtHooks"] and c["force"] and c["hookToken"] for c in state["calls"])):
         raise CompatibilityFailure(f"failed-focus-rollback: {state!r}")
     _record_screenshot(page, evidence_dir / "failed-focus-rollback.png")
     _assert_browser_health(case_name="failed-focus-rollback", console_errors=console_errors,
