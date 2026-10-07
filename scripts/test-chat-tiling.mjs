@@ -69,12 +69,14 @@ function createFreshDom() {
   // Core owns the composer and rebinds it to the incoming session's draft on
   // every load (server-restored drafts live in __drafts).
   window.__drafts = {};
-  window.loadSession = (sid) => {
+  window.loadSession = (sid, opts = {}) => {
+    if (!opts.skipExtHooks && window.handlerRegistration?.(sid, null, { preload: true, opts })?.cancel) return Promise.resolve();
     window.__loadSessionCalls.push(sid);
     // Simulate Core loading a session: update S.session and S.messages
     liveS.session = { session_id: sid, title: `Session ${sid}`, messages: liveS.messages };
     const composer = document.getElementById('msg');
     if (composer) composer.value = window.__drafts[sid] || '';
+    if (!opts.skipExtHooks) window.handlerRegistration?.(sid, liveS.session, { loaded: true, opts });
     return Promise.resolve();
   };
   window.renderTranscript = (target, msgs) => { if (target && msgs) { target.textContent = ''; msgs.forEach(m => { const d = document.createElement('div'); d.textContent = m; target.appendChild(d); }); } };
@@ -140,7 +142,7 @@ function installTwoPhaseCore(h) {
     h.S.activeStreamId = saved.stream || null;
     if (!opts.skipExtHooks) {
       phases.push(['loaded', sid]);
-      h.window.handlerRegistration(sid, h.S.session, { loaded: true });
+      h.window.handlerRegistration(sid, h.S.session, { loaded: true, opts });
     }
   };
   return { sessions, phases };
@@ -407,7 +409,7 @@ async function main() {
     h.window.chatTilingState.tiles[1].session = { session_id: 'sid-B', title: 'Session B' };
     let loadSessionCalls = [];
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => { loadSessionCalls.push(sid); return origLoad(sid); };
+    h.window.loadSession = (sid, opts = {}) => { loadSessionCalls.push(sid); return origLoad(sid, opts); };
     globalThis.loadSession = h.window.loadSession;
     // Focus B — should call loadSession('sid-B')
     h.window.focusTileExt(parseInt(tileB.dataset.tileId));
@@ -494,7 +496,7 @@ async function main() {
     await settle();
     let loadSessionCalls = 0;
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => { loadSessionCalls++; return origLoad(sid); };
+    h.window.loadSession = (sid, opts = {}) => { loadSessionCalls++; return origLoad(sid, opts); };
     globalThis.loadSession = h.window.loadSession;
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
     h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
@@ -715,7 +717,7 @@ async function main() {
     h.window.chatTilingState.tiles[1].session = { session_id: 'sid-B', title: 'Session B' };
     let loadSessionCalls = [];
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => { loadSessionCalls.push(sid); return origLoad(sid); };
+    h.window.loadSession = (sid, opts = {}) => { loadSessionCalls.push(sid); return origLoad(sid, opts); };
     globalThis.loadSession = h.window.loadSession;
     h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
     await settle();
@@ -778,10 +780,10 @@ async function main() {
     // Make loadSession fail for B
     let loadSessionCalls = [];
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => {
+    h.window.loadSession = (sid, opts = {}) => {
       loadSessionCalls.push(sid);
       if (sid === 'sid-B') return Promise.reject(new Error('load failed'));
-      return origLoad(sid);
+      return origLoad(sid, opts);
     };
     globalThis.loadSession = h.window.loadSession;
     // Try to focus B — should fail and roll back to A
@@ -818,11 +820,11 @@ async function main() {
 
     // Make loadSession controllable: B rejects after delay, C resolves immediately
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => {
+    h.window.loadSession = (sid, opts = {}) => {
       if (sid === 'sid-B') {
         return new Promise((_, reject) => setTimeout(() => reject(new Error('B failed')), 50));
       }
-      return origLoad(sid);
+      return origLoad(sid, opts);
     };
     globalThis.loadSession = h.window.loadSession;
 
@@ -859,11 +861,11 @@ async function main() {
 
     // Make loadSession slow for B
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => {
+    h.window.loadSession = (sid, opts = {}) => {
       if (sid === 'sid-B') {
-        return new Promise((resolve) => setTimeout(() => resolve(origLoad(sid)), 50));
+        return new Promise((resolve) => setTimeout(() => resolve(origLoad(sid, opts)), 50));
       }
-      return origLoad(sid);
+      return origLoad(sid, opts);
     };
     globalThis.loadSession = h.window.loadSession;
 
@@ -929,15 +931,15 @@ async function main() {
 
     // Make loadSession controllable: B rejects after delay, A (rollback) is slow
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => {
+    h.window.loadSession = (sid, opts = {}) => {
       if (sid === 'sid-B') {
         return new Promise((_, reject) => setTimeout(() => reject(new Error('B failed')), 20));
       }
       if (sid === 'sid-A') {
         // Slow rollback
-        return new Promise((resolve) => setTimeout(() => resolve(origLoad(sid)), 60));
+        return new Promise((resolve) => setTimeout(() => resolve(origLoad(sid, opts)), 60));
       }
-      return origLoad(sid);
+      return origLoad(sid, opts);
     };
     globalThis.loadSession = h.window.loadSession;
 
@@ -974,11 +976,11 @@ async function main() {
 
     // Make loadSession slow for B
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => {
+    h.window.loadSession = (sid, opts = {}) => {
       if (sid === 'sid-B') {
-        return new Promise((resolve) => setTimeout(() => resolve(origLoad(sid)), 50));
+        return new Promise((resolve) => setTimeout(() => resolve(origLoad(sid, opts)), 50));
       }
-      return origLoad(sid);
+      return origLoad(sid, opts);
     };
     globalThis.loadSession = h.window.loadSession;
 
@@ -1052,11 +1054,11 @@ async function main() {
     // Make loadSession fail for D — the retained active tile whose settle must
     // succeed before the removal is committed.
     const origLoad = h.window.loadSession;
-    h.window.loadSession = (sid) => {
+    h.window.loadSession = (sid, opts = {}) => {
       if (sid === 'sid-D') {
         return Promise.reject(new Error('D load failed'));
       }
-      return origLoad(sid);
+      return origLoad(sid, opts);
     };
     globalThis.loadSession = h.window.loadSession;
 
@@ -1243,7 +1245,7 @@ async function main() {
     await h.window.focusTileExt(a.id);
     assert(st.tiles.map(t => t.sid).join(',') === 'sid-A,sid-B', 'internal focus does not rebind B to A');
     assert(h.S.session.session_id === st.tiles.find(t => t.id === st.activeId).sid, 'focused tile owns exact Core SID');
-    assert(core.phases.filter(([phase]) => phase === 'loaded').length === 2, 'internal focus bypasses both extension phases');
+    assert(core.phases.filter(([phase]) => phase === 'loaded').length === 3, 'internal focus obtains a positive completion without rebinding another tile');
     await h.window.focusTileExt(b.id);
     await h.window.closeTileExt(b.id);
     assert(st.tiles.length === 1 && st.activeId === a.id && h.S.session.session_id === 'sid-A', 'close swaps real Core to surviving A');
@@ -1309,7 +1311,7 @@ async function main() {
     const realLoad = h.window.loadSession;
     h.window.loadSession = async () => {}; // Core veto/no-op returning undefined without target ownership.
     await h.window.focusTileExt(a.id);
-    assert(st.activeId === b.id && h.S.session.session_id === 'sid-B', 'undefined load without exact owner cannot commit focus');
+    assert(st.activeId === null && h.S.session.session_id === 'sid-B', 'undefined target and rollback loads leave snapshots without live ownership');
     let release;
     h.window.loadSession = (sid, opts) => new Promise(resolve => { release = () => resolve(); });
     const pending = h.window.focusTileExt(a.id, { force: true });
@@ -1393,7 +1395,7 @@ async function main() {
       'layout cannot overwrite newer actual loaded focus');
   }
 
-  section('R16: internal rollback also bypasses extension hooks');
+  section('R16: internal rollback requires its own positive completion');
   {
     const h = createFreshDom();
     const core = installTwoPhaseCore(h);
@@ -1408,7 +1410,7 @@ async function main() {
     };
     const before = core.phases.length;
     await h.window.focusTileExt(st.tiles[0].id);
-    assert(core.phases.length === before, 'rollback B does not run preload or loaded');
+    assert(core.phases.length === before + 2, 'rollback B gets both phases with its invocation token');
     assert(st.activeId === st.tiles[1].id && h.S.session.session_id === 'sid-B', 'failed swap leaves exact outgoing owner');
     h.window.loadSession = async (sid) => {
       if (sid === 'sid-A') { h.S.session = { session_id: sid }; throw new Error('partial target load'); }

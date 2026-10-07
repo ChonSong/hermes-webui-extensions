@@ -30,7 +30,7 @@
     _saved: null, _savedComposer: '', _savedModel: '', _w: null,
     _watcherGeneration: 0, _focusGen: 0, _closing: new Set(),
     _panelObs: null, _badgeObserver: null,
-    _focusOp: Promise.resolve(), _opGen: 0
+    _focusOp: Promise.resolve(), _opGen: 0, _navigationGen: 0, _liveSid: null
   };
 
   // ── Operation queue ──
@@ -48,8 +48,12 @@
   //     exceeds FOCUS_TIMEOUT_MS gets a bounded {timedOut:true} answer, but the
   //     transaction keeps its slot until it finishes — releasing the queue
   //     while a mutator is still live would let two mutators interleave.
-  function enqueueOp(fn){
-    const run=T._focusOp.then(()=>fn(++T._opGen));
+  function enqueueOp(fn,onDiscard){
+    const admission=T._navigationGen;
+    const run=T._focusOp.then(()=>{
+      if(admission!==T._navigationGen){if(onDiscard)onDiscard();return;}
+      return fn(++T._opGen);
+    });
     T._focusOp=run.then(()=>{},()=>{});
     let timerId=null;
     const deadline=new Promise((resolve)=>{
@@ -148,9 +152,42 @@
   // Core is canonical only for the matching session. Copy at lifecycle
   // boundaries as well as on the watcher, so an immediate switch/close cannot
   // lose messages or a stream that started since the last 300ms poll.
+  const internalLoads=new Map();
+
+  function transcriptLoaded(sid){
+    const s=getS();
+    return !!(s&&s.session&&s.session.session_id===sid&&Array.isArray(s.messages)&&
+      (Number(s.session.message_count||0)===0||s.messages.length>0));
+  }
+
+  function isLiveTile(tile){
+    return !!(tile&&tile.id===T.activeId&&tile.sid===T._liveSid);
+  }
+
+  function revokeLiveProjection(){
+    T._liveSid=null;
+    stopWatcher();
+    T.tiles.forEach(renderSnapshot);
+    refreshTileGrid();
+  }
+
+  async function loadTileSession(sid){
+    // Core resolves metadata/message errors and stale continuations. Only its
+    // terminal loaded hook, tied to this invocation, is a positive outcome.
+    // Force also avoids the same-SID fast return, which has no completion hook.
+    const token={sid,loaded:false};
+    internalLoads.set(token,token);
+    try{
+      await window.loadSession(sid,{force:true,_chatTilingLoad:token});
+      if(!token.loaded||!transcriptLoaded(sid))throw new Error('Tile transcript did not finish loading');
+    }finally{
+      internalLoads.delete(token);
+    }
+  }
+
   function snapshotLive(tile){
     const s=getS();
-    if(!tile||!s||!s.session||s.session.session_id!==tile.sid)return;
+    if(!tile||T._liveSid!==tile.sid||!s||!s.session||s.session.session_id!==tile.sid)return;
     tile.session=s.session;
     tile.messages=[...(s.messages||[])];
     tile.busy=!!s.busy;
@@ -158,7 +195,7 @@
   }
 
   function rc(tile){
-    if(!tile)return;
+    if(!tile||T._liveSid!==tile.sid)return;
     const composer=document.getElementById('msg');
     if(composer){
       composer.value=tile.cv||'';
@@ -169,7 +206,7 @@
   }
 
   function sc(tile){
-    if(!tile)return;
+    if(!tile||T._liveSid!==tile.sid)return;
     const composer=document.getElementById('msg');
     if(composer)tile.cv=composer.value;
     const modelSelect=document.getElementById('modelSelect');
@@ -180,7 +217,7 @@
   // live instead of letting the tile's stale default overwrite it — otherwise
   // focusing a freshly loaded tile wipes the server-restored draft.
   function seedFromLiveControls(tile){
-    if(!tile)return;
+    if(!tile||T._liveSid!==tile.sid)return;
     const composer=document.getElementById('msg');
     if(composer)tile.cv=composer.value;
     const modelSelect=document.getElementById('modelSelect');
@@ -190,8 +227,8 @@
   function updateHeader(t){
     if(!t.el)return;
     t.el.tabIndex=t.sid?0:-1;
-    t.el.setAttribute('aria-label',`Chat tile ${t.id} — ${t.session?.title||t.sid||'empty'}${t.id===T.activeId?' — focused':''}`);
-    t.el.setAttribute('aria-current',String(t.id===T.activeId));
+    t.el.setAttribute('aria-label',`Chat tile ${t.id} — ${t.session?.title||t.sid||'empty'}${isLiveTile(t)?' — focused':''}`);
+    t.el.setAttribute('aria-current',String(isLiveTile(t)));
     const title=t.el.querySelector('.ext-tile-title');
     if(title){
       title.textContent=t.session?t.session.title||t.sid:'Empty tile';
@@ -323,7 +360,7 @@
     T.tiles.forEach(t=>{
       if(t.el&&t.el.parentElement!==grid)grid.appendChild(t.el);
       if(t.el){
-        t.el.classList.toggle('ext-tile--focused',t.id===T.activeId);
+        t.el.classList.toggle('ext-tile--focused',isLiveTile(t));
         t.el.classList.toggle('ext-tile--empty',!t.sid);
         updateHeader(t);
       }
@@ -399,7 +436,7 @@
   // initial showGrid seed. Synchronous by design so a hook firing inside another
   // transaction cannot re-enter the queue.
   function _commitFocus(tile){
-    if(!tile||!tile.el)return;
+    if(!tile||!tile.el||(tile.sid&&T._liveSid!==tile.sid))return;
     T.activeId=tile.id;
     T.tiles.forEach(t=>{
       if(!t.el)return;
@@ -433,7 +470,7 @@
       // settle the surviving tile whose Core load the close already completed.
       const s=getS();
       const owner=s&&s.session?bySid(s.session.session_id):null;
-      if(myOpGen===T._opGen&&owner&&T.activeId!==owner.id){
+      if(myOpGen===T._opGen&&owner&&T._liveSid===owner.sid&&T.activeId!==owner.id){
         snapshotLive(owner);
         _commitFocus(owner);
       }
@@ -447,46 +484,41 @@
     const liveS=getS();
     const liveSid=liveS&&liveS.session?liveS.session.session_id:null;
     if(!tile.sid&&liveSid)return;
-    if(T.activeId===id&&!opts.force)return;
+    if(isLiveTile(tile)&&!opts.force)return;
     // Capture focus generation — bail if a newer focus supersedes us
     T._focusGen++;
     const myGen=T._focusGen;
     const outgoing=at();
-    if(outgoing&&outgoing!==tile){sc(outgoing);snapshotLive(outgoing);}
+    if(outgoing){sc(outgoing);snapshotLive(outgoing);}
 
     try{
-      // Core can catch a failed load and resolve after clearing the transcript.
-      // Both a rejection and a resolved load without ownership need rollback.
-      if(tile.sid&&!opts.alreadyLoaded&&typeof window.loadSession==='function'){
-        await window.loadSession(tile.sid,{skipExtHooks:true});
-        if(myGen!==T._focusGen)return;
+      if(tile.sid&&(!opts.alreadyLoaded||T._liveSid!==tile.sid)){
+        revokeLiveProjection();
+        await loadTileSession(tile.sid);
+        if(myGen!==T._focusGen||myOpGen!==T._opGen)return;
+        T._liveSid=tile.sid;
       }
       if(myOpGen!==T._opGen)return;
-      const settled=getS();
-      if(tile.sid&&(!settled||!settled.session||settled.session.session_id!==tile.sid)){
-        throw new Error('Tile session did not become the live Core session');
+      if(tile.sid&&(!transcriptLoaded(tile.sid)||T._liveSid!==tile.sid)){
+        throw new Error('Tile transcript is not the live Core transcript');
       }
     }catch(e){
-      // Never roll back over a newer focus or an invalidated operation.
       if(myGen!==T._focusGen||myOpGen!==T._opGen)return;
       const rbGen=++T._focusGen;
+      let restored=false;
       if(outgoing&&outgoing.sid){
-        // A failed metadata load may leave S.session pointing to the outgoing
-        // SID with its transcript erased. Bypass Core's same-SID fast return.
-        try{await window.loadSession(outgoing.sid,{skipExtHooks:true,force:true});}catch(_){}
+        try{await loadTileSession(outgoing.sid);restored=true;}catch(_){}
       }
       if(rbGen!==T._focusGen||myOpGen!==T._opGen)return;
-      const rollbackS=getS();
-      if(outgoing&&outgoing.sid){
-        if(!rollbackS||!rollbackS.session||rollbackS.session.session_id!==outgoing.sid){
-          T.activeId=null;
-          refreshTileGrid();
-          renderSnapshot(outgoing);
-          stopWatcher();
-        }else{
-          snapshotLive(outgoing);
-          _commitFocus(outgoing);
-        }
+      if(restored){
+        T._liveSid=outgoing.sid;
+        snapshotLive(outgoing);
+        _commitFocus(outgoing);
+      }else{
+        // A matching SID with failed messages is still an unsuccessful load.
+        // Never replace the saved transcript with Core's damaged projection.
+        T.activeId=null;
+        revokeLiveProjection();
       }
       if(opts.throwOnFailure)throw e;
       return;
@@ -503,7 +535,7 @@
   function closeTile(id){
     if(T._closing.has(id))return Promise.resolve();
     T._closing.add(id);
-    return enqueueOp((myOpGen)=>_closeTileImpl(id,myOpGen));
+    return enqueueOp((myOpGen)=>_closeTileImpl(id,myOpGen),()=>T._closing.delete(id));
   }
 
   async function _closeTileImpl(id,myOpGen){
@@ -625,7 +657,7 @@
       const t=at();
       if(!t||T.activeId===null){stopWatcher();return;}
       const s=getS();
-      if(!s||!s.session)return;
+      if(!s||!s.session||T._liveSid!==t.sid)return;
       // Fenced projection: only copy S state if this tile owns the session
       if(s.session.session_id!==t.sid)return;
       if(s.messages&&s.messages.length>0)t.messages=[...s.messages];
@@ -823,27 +855,31 @@
   // just loaded rather than being left stale.
   function sessionOpenHandler(sid,data,opts){
     opts=opts||{};
+    const token=opts.opts&&opts.opts._chatTilingLoad;
+    if(token&&internalLoads.has(token)){
+      if(opts.loaded&&sid===token.sid&&transcriptLoaded(sid))token.loaded=true;
+      return {};
+    }
+    if(opts.loaded&&transcriptLoaded(sid))T._liveSid=sid;
     if(!T.visible)return {};
 
     if(opts.preload){
       reapStaleReservations();
-      // Snapshot the outgoing draft BEFORE Core swaps sessions and resets the
-      // composer — afterwards the live value belongs to the incoming session.
+      const auto=gs('auto_tile',true)!==false;
+      const t=auto?reserveTile(sid):at();
+      if(!t)return {cancel:true};
       const outgoing=at();
       if(outgoing&&outgoing.sid!==sid){sc(outgoing);snapshotLive(outgoing);}
-
-      if(gs('auto_tile',true)===false){
-        // Auto-tiling off: allow navigation, but only if there is a focused
-        // tile we can rebind to keep authority coherent.
-        return at()?{}:{cancel:true};
-      }
-      const t=reserveTile(sid);
-      if(!t)return {cancel:true}; // No destination — veto rather than split authority
-      // Existing sessions already have a destination. Core emits preload but
-      // no loaded hook for a same-session no-op, so never reserve another slot.
+      // Accepted external intent wins at admission, before Core's first await.
+      // Fence the current continuation and all operations queued before it.
+      T._navigationGen++;
+      T._focusGen++;
+      T._opGen++;
+      const sameLive=T._liveSid===sid&&transcriptLoaded(sid);
+      if(!sameLive)revokeLiveProjection();
+      if(!auto)return {};
       if(t.sid===sid){
-        const s=getS();
-        if(s&&s.session&&s.session.session_id===sid){
+        if(sameLive){
           snapshotLive(t);
           seedFromLiveControls(t);
           _commitFocus(t);
@@ -858,7 +894,7 @@
 
     if(opts.loaded){
       const s=getS();
-      if(!s||!s.session||s.session.session_id!==sid)return {};
+      if(!s||!s.session||!transcriptLoaded(sid)||T._liveSid!==sid)return {};
       // A real external load supersedes an internal focus/rollback in flight.
       T._focusGen++;
       const auto=gs('auto_tile',true)!==false;

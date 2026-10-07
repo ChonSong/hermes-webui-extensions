@@ -77,8 +77,8 @@ Key invariants:
 - **switchLayout() rearranges grid only** — doesn't touch #msgInner
 - **hideGrid() removes overlay** — focused tile's session stays as the live session
 - **All mutations are serialized** — focus/close/layout/hide run as single
-  transactions on one queue. Generation advances when a transaction starts,
-  so a queued layout action cannot invalidate a focus load already in progress.
+  transactions on one queue. Generation advances when a transaction starts. An accepted external preload
+  invalidates the running continuation and mutations queued before that navigation.
 
 Real Core transaction regression check (isolated state, no agent/model/cancel):
 
@@ -86,17 +86,27 @@ Real Core transaction regression check (isolated state, no agent/model/cancel):
 HERMES_CORE_DIR=/path/to/hermes-webui python tests/compatibility/tiling_transactions_smoke.py
 ```
 
-This imports two transcripts through Core's HTTP API and checks exact Core/tile
+This imports transcripts through Core's HTTP API and checks exact Core/tile
 SID, displayed body, draft restoration, delayed focus plus layout, double hide,
 hide followed by layout, failed/successful successor, last bound close, and
-keyboard activation/state. A real HTTP metadata failure checks that both focus
-and active close force-reload the outgoing transcript even when Core resolves
-the failed load. Synthetic approval cards exercise Core's document shortcut;
-every approval response is intercepted, and tile/toolbar Enter and Space must
-produce zero responses. HTTP and WebSocket guards block off-origin requests,
-and service workers are disabled before navigation. The delayed/rejected cases
-wrap the real Core `loadSession`; these checks do not certify cancellation
-cleanup or pane geometry.
+keyboard activation/state. The load outcome matrix faults target and rollback
+metadata/messages independently for focus and active close. A successful load
+requires Core's terminal `loaded` hook for that exact invocation and a loaded
+transcript; a resolved promise or matching SID alone is insufficient. Internal
+loads use `force:true` to obtain that completion even for the same SID. Their
+hook token bypasses tiling reservation/rebinding, while other Core extension
+hooks still run normally.
+
+If rollback also fails, cached transcripts and drafts stay intact and all tiles
+remain snapshots with no live ownership claim. Pending sidebar navigation is
+accepted at `preload`, immediately fencing older focus/rollback continuations
+and queued mutations. Held real HTTP responses test target and rollback races;
+valid empty conversations and a missing message payload cover outcome symmetry.
+Synthetic approval cards exercise Core's document shortcut; every approval
+response is intercepted, and tile/toolbar Enter and Space produce zero
+responses. HTTP and WebSocket guards block off-origin requests, and service
+workers are disabled before navigation. These tests do not certify cancellation
+cleanup or fitted live-pane geometry.
 
 ```text
 ┌─────────────────────────────────────────────┐
