@@ -29,6 +29,7 @@
     tiles: [], activeId: null, visible: false, _cols: 0, _rows: 0,
     _saved: null, _savedComposer: '', _savedModel: '', _w: null,
     _watcherGeneration: 0, _focusGen: 0, _closing: new Set(),
+    _ownershipWatch: null, _observedSid: null, _externalExpectedSid: null,
     _panelObs: null, _badgeObserver: null,
     _focusOp: Promise.resolve(), _opGen: 0, _navigationGen: 0, _liveSid: null
   };
@@ -175,10 +176,11 @@
     // Core resolves metadata/message errors and stale continuations. Only its
     // terminal loaded hook, tied to this invocation, is a positive outcome.
     // Force also avoids the same-SID fast return, which has no completion hook.
-    const token={sid,loaded:false};
+    const token={sid,originSid:getS()?.session?.session_id||null,loaded:false};
     internalLoads.set(token,token);
     try{
       await window.loadSession(sid,{force:true,_chatTilingLoad:token});
+      observeCoreOwnership();
       if(!token.loaded||!transcriptLoaded(sid))throw new Error('Tile transcript did not finish loading');
     }finally{
       internalLoads.delete(token);
@@ -496,6 +498,7 @@
       if(tile.sid&&(!opts.alreadyLoaded||T._liveSid!==tile.sid)){
         revokeLiveProjection();
         await loadTileSession(tile.sid);
+        observeCoreOwnership();
         if(myGen!==T._focusGen||myOpGen!==T._opGen)return;
         T._liveSid=tile.sid;
       }
@@ -504,11 +507,13 @@
         throw new Error('Tile transcript is not the live Core transcript');
       }
     }catch(e){
+      observeCoreOwnership();
       if(myGen!==T._focusGen||myOpGen!==T._opGen)return;
       const rbGen=++T._focusGen;
       let restored=false;
       if(outgoing&&outgoing.sid){
         try{await loadTileSession(outgoing.sid);restored=true;}catch(_){}
+        observeCoreOwnership();
       }
       if(rbGen!==T._focusGen||myOpGen!==T._opGen)return;
       if(restored){
@@ -641,12 +646,38 @@
     if(grid)grid.remove();
 
     // Reset state
+    if(T._ownershipWatch){clearInterval(T._ownershipWatch);T._ownershipWatch=null;}
+    T._externalExpectedSid=null;
     T.tiles=[];
     T.activeId=null;
 
     T._saved=null;
     T._savedComposer='';
     T._savedModel='';
+  }
+
+  function observeCoreOwnership(){
+    if(!T.visible)return;
+    const sid=getS()?.session?.session_id||null;
+    if(sid===T._observedSid)return;
+    const expected=sid!==null&&(sid===T._externalExpectedSid||
+      [...internalLoads.values()].some(token=>sid===token.sid||sid===token.originSid));
+    T._observedSid=sid;
+    if(expected)return;
+    // newSession/delete can bypass open hooks. This is observation, not a
+    // synchronous Core lifecycle contract: revoke claims, never repair Core.
+    T._navigationGen++;
+    T._focusGen++;
+    T._opGen++;
+    T._externalExpectedSid=null;
+    T.activeId=null;
+    revokeLiveProjection();
+  }
+
+  function startOwnershipWatch(){
+    if(T._ownershipWatch)clearInterval(T._ownershipWatch);
+    T._observedSid=getS()?.session?.session_id||null;
+    T._ownershipWatch=setInterval(observeCoreOwnership,300);
   }
 
   function startWatcher(){
@@ -679,6 +710,7 @@
     if(T.visible&&T._cols===cols&&T._rows===rows)return;
     if(T.visible){await _switchLayoutImpl(cols,rows,myOpGen);return;}
     T._cols=cols;T._rows=rows;T.visible=true;
+    startOwnershipWatch();
 
     // Save current Core state (for rollback if needed)
     const s=getS();
@@ -861,7 +893,11 @@
       if(opts.loaded&&sid===token.sid&&transcriptLoaded(sid))token.loaded=true;
       return {};
     }
-    if(opts.loaded&&transcriptLoaded(sid))T._liveSid=sid;
+    if(opts.loaded&&transcriptLoaded(sid)){
+      T._liveSid=sid;
+      T._observedSid=sid;
+      T._externalExpectedSid=null;
+    }
     if(!T.visible)return {};
 
     if(opts.preload){
@@ -873,6 +909,8 @@
       if(outgoing&&outgoing.sid!==sid){sc(outgoing);snapshotLive(outgoing);}
       // Accepted external intent wins at admission, before Core's first await.
       // Fence the current continuation and all operations queued before it.
+      T._externalExpectedSid=sid;
+      T._observedSid=getS()?.session?.session_id||null;
       T._navigationGen++;
       T._focusGen++;
       T._opGen++;

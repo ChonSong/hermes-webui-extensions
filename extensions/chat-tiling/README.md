@@ -156,3 +156,26 @@ The extension loads and safely no-ops on older versions (feature-detected).
 ## Capabilities
 
 - `manifest-bundle`
+
+## Remaining Core contract gaps
+
+Core `2e0557328` does not provide a navigation option to skip saving the current
+composer before a cross-session load. After an idle message-fetch failure,
+Core may already identify the target SID while still displaying the outgoing
+composer; automatic rollback can therefore persist that text/files to the
+wrong session. Core's draft restoration also explicitly omits attachment
+restoration. This extension does not claim to have fixed those persistence or
+attachment guarantees. They need a Core contract before reliable rollback.
+
+For streaming sessions, Core can substitute an INFLIGHT tail after a failed
+message fetch and still emit `loaded`. The hook is not a positive result for
+full transcript recovery. Busy-target acceptance, fitted live-pane geometry,
+and stream-owned cancellation remain unresolved; successful idle tests do
+not certify them.
+
+While the grid is visible, a separate 300ms ownership observer detects SID/null
+changes outside the open hooks, such as `newSession` and active deletion. It
+revokes the live claim and invalidates pending extension transactions when
+observed. It does not synchronously fence Core: an already-started Core load
+may still overwrite Core's own newer session before/after the observer runs.
+A synchronous lifecycle notification is required to close that race.

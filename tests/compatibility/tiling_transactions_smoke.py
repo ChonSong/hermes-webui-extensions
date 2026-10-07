@@ -304,6 +304,48 @@ try:
                 page.wait_for_timeout(250)
                 results.append({'case':f'{selector} {key} cannot approve a tool call',
                     'pass':len(approval_requests)==before,'approvalRequests':len(approval_requests)-before})
+        # Core newSession/delete do not emit session-open hooks. Polling can
+        # revoke extension claims after observation; it cannot stop Core itself
+        # from completing an already-started stale load.
+        for pending in [False,True]:
+            fresh()
+            held=[]
+            def hold_unhooked(route):
+                q=parse_qs(urlsplit(route.request.url).query)
+                if q.get('session_id')==[sids[1]] and q.get('messages')==['0']:held.append(route)
+                else:route.fallback()
+            if pending:
+                ctx.route('**/api/session?*',hold_unhooked)
+                page.evaluate('()=>{window.unhookedFocus=focusTileExt(chatTilingState.tiles.find(t=>t.sid===reviewSids[1]).id);window.unhookedClose=closeTileExt(chatTilingState.tiles.find(t=>t.sid===reviewSids[1]).id)}')
+                for _ in range(200):
+                    if held:break
+                    page.wait_for_timeout(10)
+                assert held
+            before=page.evaluate('()=>chatTilingState._navigationGen')
+            page.evaluate('async()=>await newSession(false)')
+            created=page.evaluate('()=>S.session.session_id')
+            page.wait_for_timeout(650)
+            observed=page.evaluate('()=>({active:chatTilingState.activeId,live:chatTilingState._liveSid,gen:chatTilingState._navigationGen,focused:document.querySelectorAll(".ext-tile--focused").length})')
+            if pending:
+                held[0].fulfill(response=ctx.request.get(held[0].request.url))
+                page.evaluate('async()=>await Promise.all([unhookedFocus,unhookedClose])')
+            final=page.evaluate('()=>({active:chatTilingState.activeId,live:chatTilingState._liveSid,count:chatTilingState.tiles.length,core:S.session?.session_id,cached:chatTilingState.tiles.map(t=>JSON.stringify(t.messages))})')
+            results.append({'case':f'unhooked real newSession revokes ownership (pending={pending})',
+                'pass':observed['active'] is None and observed['live'] is None and observed['focused']==0 and observed['gen']>before
+                    and final['active'] is None and final['live'] is None and final['count']==2 and any('Body A' in x for x in final['cached']),
+                'observed':observed,'state':final,'createdCoreSid':created,
+                'limit':'Core may still overwrite its own new session with the pending old load; extension does not claim to synchronously fence Core.'})
+        fresh()
+        def empty_after_delete(route):
+            if urlsplit(route.request.url).path=='/api/sessions':route.fulfill(status=200,json={'sessions':[]})
+            else:route.fallback()
+        ctx.route('**/api/sessions*',empty_after_delete)
+        page.evaluate('()=>{window.reviewDelete=deleteSession(S.session.session_id,()=>Promise.resolve())}')
+        page.locator('#appDialogConfirm').click()
+        page.evaluate('async()=>await reviewDelete')
+        page.wait_for_timeout(650)
+        r=page.evaluate('()=>({core:S.session?.session_id||null,active:chatTilingState.activeId,live:chatTilingState._liveSid,focused:document.querySelectorAll(".ext-tile--focused").length,count:chatTilingState.tiles.length})')
+        results.append({'case':'real active delete reaching null revokes ownership','pass':r['core'] is None and r['active'] is None and r['live'] is None and r['focused']==0 and r['count']==2,'state':r})
         smoke._assert_browser_health(case_name='tiling final',console_errors=[],page_errors=page_errors,
             extension_fragments=('chat-tiling',),network_events=network_events)
         # Negative checks for both transport guards. These controlled probes
