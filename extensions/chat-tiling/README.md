@@ -1,181 +1,79 @@
-# Chat Tiling
+# Chat Tiling — snapshot-only v1
 
-Multi-session tiling layouts for Hermes WebUI — split your chat panel into a
-grid of session snapshots. Each tile holds a session context (messages, model,
-streaming state); only the focused tile uses the shared composer and live model
-context. Great for comparing agent outputs side-by-side, keeping a reference
-conversation visible while you work elsewhere, or monitoring multiple sessions
-as static snapshots.
+Compare saved conversation history in 2, 4 or 6 snapshot cards. There is only
+one input area: Core's existing composer, shown in normal chat. Every grid cell
+is a history snapshot; none is a transparent live pane.
 
-## What It Does
+Click **Compare history** to open the grid. Its first empty slot loads the
+current conversation's recent saved history. Click sidebar conversation titles
+to add more snapshots. On narrow screens the cards stack vertically. Each card
+has **Refresh history**, **Expand**, and **Close** controls. Refresh reads saved
+history again; it does not subscribe to a stream. Responses are limited to the
+most recent 30 visible rows. Open normal chat to read the full conversation.
 
-- **Layouts** — 2-column (horizontal split), 4-corner (2×2 grid), 6-tile (3×2 grid)
-- **Session snapshots** — each tile renders a session's messages via `window.renderTranscript()`
-- **Focus switching** — click a *bound* tile or focus its region and press Enter/Space to make it the active composer/model context; the outgoing tile's state is saved, the incoming tile's session is loaded via `window.loadSession()`
-- **Maximize** — expand one tile to fill the entire grid; restore with one click
-- **Session restore** — click any sidebar session to load it into the next free tile (when auto-tile is enabled); with auto-tile off the focused tile follows Core instead of reserving a slot
-- **Graceful close** — cancels in-flight streaming before removing the tile
+Click a card's title to leave the grid and use Core's ordinary `loadSession`
+navigation. Core owns the draft, attachments, profile/model, approvals, sends
+and streams. Use **Compare history** again to return to the retained snapshots,
+or **Return to chat** / Escape to leave comparison without navigating.
 
-Closing the active tile loads its bound successor before removing it. If that
-load fails, the original tile stays. Closing the last bound tile returns to the
-ordinary Core transcript with its session and draft intact. The toolbar's
-Close tiling action only hides the overlay; it leaves running streams alone.
+**Close only removes a local snapshot.** It does not cancel a stream, delete a
+conversation, clear a draft or change Core's active session. Closing the final
+card returns to normal chat. Reducing a layout refuses to silently discard
+populated cards; close them first. Failed refreshes keep the previous snapshot.
 
-Review boundary: cancellation still depends on Core's stream-owned cleanup
-(nesquena/hermes-webui#7993). The transparent focused-cell design still needs a
-fitted live-pane contract and populated narrow-screen visual acceptance. The
-transaction and keyboard fixes do not make these outstanding gates pass.
+The grid temporarily hides and makes Core's transcript/composer inert while
+comparison is visible; it never detaches them or creates a second composer.
+Their previous accessibility attributes are restored on exit. Owned controls
+stop Enter/Space propagation so grid actions cannot trigger Core's approval
+shortcut. Sidebar action buttons and menus remain Core's responsibility.
+Switching panels exits comparison. Native navigation is never vetoed by a
+session-open hook; it exits the grid and proceeds normally. Native new/delete
+transitions that bypass those hooks are observed to exit comparison, without
+trying to repair, supersede or roll back Core's navigation.
 
-## How It Works
+## Trust and capabilities
 
-```
-Sidebar click → registerHermesSessionOpenHandler (preload phase: reserve a slot)
-                                        (loaded phase: bind the tile + focus it)
-  → tiling extension fills a tile
-  → tile gets its own session context (sid/messages/model)
-  → only the focused tile drives the shared composer
-  → if no slot can be bound, the extension vetoes the navigation
-    (returns {cancel:true}) rather than letting the tile and Core disagree
+Same-origin read-only `/api/session` requests supply snapshot history. The
+extension uses Core's `renderTranscript` renderer and public `loadSession` and
+session-open hook. It does not write storage, drafts or inflight state; does not
+read `INFLIGHT`; and does not call send, approval, cancel or delete APIs. No
+sidecar, filesystem access, remote scripts or external service is required.
+Both manifests declare no write endpoints and no shared storage keys.
 
-Toolbar button → showGrid(cols, rows)
-  → create #ext-tile-grid as an absolute overlay inside .messages-shell
-  → build N tile elements (normal stretching CSS grid items)
-  → focus first tile (transparent, shows live #msgInner beneath)
-  → non-focused tiles render renderTranscript snapshots (opaque overlay)
-```
+Core normal navigation may still fail, including during streaming recovery.
+The extension hands off once, restores normal chat and never performs a failed
+load rollback or writes composer state. A resolved Core navigation promise is
+not presented as a successful live snapshot. Core's own failed-navigation draft
+and attachment behavior remains a Core concern; this extension does not claim
+to repair it. Fitted live-pane geometry and stream-owned cancellation are not
+requirements of this snapshot-only version.
 
-The extension uses three stable WebUI public APIs:
-
-- `window.registerHermesSessionOpenHandler(fn)` — fires on session open; routes
-  clicks to tiles when the grid is active. Returning `{cancel:true}` from the
-  preload phase vetoes the navigation.
-- `window.renderTranscript(container, messages, opts)` — renders a message array
-  into any container using the sanitized markdown pipeline.
-- `window.loadSession(sid)` — swaps Core's live session state when focusing a tile.
-
-## Architecture
-
-The extension uses a **single-live-session** model: Core owns one `S` object,
-one composer, and one live model/run context. Only the focused tile can safely
-own it. Non-focused tiles are rendered snapshots — they display messages but
-do not drive the live context.
-
-Key invariants:
-- **#messages stays visible** — Core owns scroll, pagination, virtualization
-- **#msgInner stays in #messages** — never detached, never moved
-- **Grid is an overlay** — absolute inside `.messages-shell`, the
-  non-scrolling wrapper, so it does not scroll away with the transcript
-- **Tiles are real grid items** — they stretch into their cell; nothing is
-  `position:absolute`, so tiles cannot stack at a shared origin
-- **Focused tile = transparent window** — shows live #msgInner beneath
-- **Non-focused tiles = opaque snapshots** — cover #msgInner beneath
-- **Unbound tiles are not focusable** — a tile with no session can never take
-  the composer, so input cannot be sent to a different conversation
-- **Tiles and Core never disagree** — a navigation with no bindable slot is
-  vetoed, and when auto-tiling is off the focused tile follows Core
-- **focusTile() calls loadSession(tile.sid)** — actually swaps Core's session state
-- **switchLayout() rearranges grid only** — doesn't touch #msgInner
-- **hideGrid() removes overlay** — focused tile's session stays as the live session
-- **All mutations are serialized** — focus/close/layout/hide run as single
-  transactions on one queue. Generation advances when a transaction starts. An accepted external preload
-  invalidates the running continuation and mutations queued before that navigation.
-
-Real Core transaction regression check (isolated state, no agent/model/cancel):
+## Verification
 
 ```bash
-HERMES_CORE_DIR=/path/to/hermes-webui python tests/compatibility/tiling_transactions_smoke.py
+node scripts/test-chat-tiling.mjs
+HERMES_CORE_DIR=/path/to/hermes-webui python tests/compatibility/chat_tiling_smoke.py
 ```
 
-This imports transcripts through Core's HTTP API and checks exact Core/tile
-SID, displayed body, draft restoration, delayed focus plus layout, double hide,
-hide followed by layout, failed/successful successor, last bound close, and
-keyboard activation/state. The load outcome matrix faults target and rollback
-metadata/messages independently for focus and active close. A successful load
-requires Core's terminal `loaded` hook for that exact invocation and a loaded
-transcript; a resolved promise or matching SID alone is insufficient. Internal
-loads use `force:true` to obtain that completion even for the same SID. Their
-hook token bypasses tiling reservation/rebinding, while other Core extension
-hooks still run normally.
+The browser suite uses a real isolated Core backend, real imported transcripts,
+and the native renderer/navigation. It checks populated desktop, narrow/mobile,
+light/dark snapshots, the sole composer and node restoration, keyboard actions,
+returning to retained snapshots, independent snapshot refresh failures and late
+responses, local close of busy history, persisted draft isolation, and failure
+handoff without extension rollback. Approval responses and unexpected browser
+egress are blocked; no actual model or cancel/delete producer is invoked.
+The removed live-tile regression evidence remains in the maintenance outcome
+report; it is not treated as this product's acceptance contract.
 
-If rollback also fails, cached transcripts and drafts stay intact and all tiles
-remain snapshots with no live ownership claim. Pending sidebar navigation is
-accepted at `preload`, immediately fencing older focus/rollback continuations
-and queued mutations. Held real HTTP responses test target and rollback races;
-valid empty conversations and a missing message payload cover outcome symmetry.
-Synthetic approval cards exercise Core's document shortcut; every approval
-response is intercepted, and tile/toolbar Enter and Space produce zero
-responses. HTTP and WebSocket guards block off-origin requests, and service
-workers are disabled before navigation. These tests do not certify cancellation
-cleanup or fitted live-pane geometry.
-
-```text
-┌─────────────────────────────────────────────┐
-│  Toolbar (2 | 4 | 6 | ✕) in .app-titlebar   │
-├─────────────────────────────────────────────┤
-│  .messages-shell (non-scrolling anchor)     │
-│  ├── #messages (Core owns scroll)           │
-│  │     #msgInner (live session content)     │
-│  └── #ext-tile-grid (absolute, inset:0)     │
-│      ┌──────────┐  ┌──────────┐             │
-│      │  Tile 1  │  │  Tile 2  │             │
-│      │(focused) │  │(snapshot)│             │
-│      │transparent│  │  opaque  │             │
-│      └──────────┘  └──────────┘             │
-└─────────────────────────────────────────────┘
-```
-
-Each tile holds `{ id, sid, session, messages, busy, activeStreamId, maximized, cv, mv }`.
-Switching focus calls `loadSession()` to swap Core's session, then restores the
-incoming tile's composer value + model selection.
-
-## Settings
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `auto_tile` | boolean | `true` | Auto-fill tiles on sidebar session click. When off, no slot is reserved and the focused tile follows Core instead |
-| `show_sidebar_badges` | boolean | `true` | Show active-tile-count badges in sidebar |
-| `preload_timeout_ms` | number | `5000` | How long a reserved tile slot is held before it is released. A reservation is never stolen before this deadline; only after it expires can another session reuse the slot |
-
-## Install For Local Testing
+## Local testing
 
 ```bash
 cd /path/to/hermes-webui
-HERMES_WEBUI_EXTENSION_DIR=/path/to/hermes-webui-dev/extensions/chat-tiling \
+HERMES_WEBUI_EXTENSION_DIR=/path/to/hermes-webui-extensions/extensions/chat-tiling \
 HERMES_WEBUI_EXTENSION_MANIFEST=manifest.json \
 ./start.sh
 ```
 
-Or register in your dev state dir's `extension-install-manifest.json` and restart.
-
-## Requirements
-
-Hermes WebUI **≥ 2026.07.18** (the release that shipped
-`registerHermesSessionOpenHandler` and `renderTranscript` as public APIs).
-The extension loads and safely no-ops on older versions (feature-detected).
-
-## Capabilities
-
-- `manifest-bundle`
-
-## Remaining Core contract gaps
-
-Core `2e0557328` does not provide a navigation option to skip saving the current
-composer before a cross-session load. After an idle message-fetch failure,
-Core may already identify the target SID while still displaying the outgoing
-composer; automatic rollback can therefore persist that text/files to the
-wrong session. Core's draft restoration also explicitly omits attachment
-restoration. This extension does not claim to have fixed those persistence or
-attachment guarantees. They need a Core contract before reliable rollback.
-
-For streaming sessions, Core can substitute an INFLIGHT tail after a failed
-message fetch and still emit `loaded`. The hook is not a positive result for
-full transcript recovery. Busy-target acceptance, fitted live-pane geometry,
-and stream-owned cancellation remain unresolved; successful idle tests do
-not certify them.
-
-While the grid is visible, a separate 300ms ownership observer detects SID/null
-changes outside the open hooks, such as `newSession` and active deletion. It
-revokes the live claim and invalidates pending extension transactions when
-observed. It does not synchronously fence Core: an already-started Core load
-may still overwrite Core's own newer session before/after the observer runs.
-A synchronous lifecycle notification is required to close that race.
+Requires Core's public session-open hook, transcript renderer and `loadSession`.
+Feature detection leaves unsupported Core versions unchanged. No live-tile mode
+or automatic stream cancellation is included in v1.
