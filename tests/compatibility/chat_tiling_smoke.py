@@ -155,13 +155,21 @@ try:
         check('actual Core approval shortcut trap positive control',len(dangerous)==1,dangerous)
         dangerous.clear()
         page.locator('#ext-tiling-toolbar button').click();synthetic_approval()
+        # Consecutive native key presses with no refocus between them: focus must
+        # stay on the owned control, never fall to <body> where Enter approves.
         b.get_by_role('button',name='Refresh history',exact=True).focus()
-        b.get_by_role('button',name='Refresh history',exact=True).press('Enter')
+        page.keyboard.press('Enter');page.keyboard.press('Enter')
         page.wait_for_function('() => chatTilingState.tiles.every(t=>!t.loading)')
+        page.keyboard.press('Enter')
+        page.wait_for_function('() => chatTilingState.tiles.every(t=>!t.loading)')
+        check('Refresh keeps keyboard focus across loading',page.evaluate('!!document.activeElement&&document.activeElement.classList.contains("ext-tile-refresh")'))
         b.get_by_role('button',name='Expand snapshot',exact=True).focus()
-        b.get_by_role('button',name='Expand snapshot',exact=True).press(' ')
-        b.get_by_role('button',name='Restore snapshot',exact=True).press(' ')
-        check('owned Enter/Space produce no approvals',not dangerous,dangerous)
+        for key in ['Enter','Enter',' ',' ']:page.keyboard.press(key)
+        page.wait_for_timeout(200)
+        check('Expand/Restore keeps keyboard focus',page.evaluate('!!document.activeElement&&document.activeElement.classList.contains("ext-tile-expand")&&chatTilingState.maximizedId===null'))
+        check('pinned cards stay at their latest message after Expand/Restore',page.evaluate('(()=>{const pinned=chatTilingState.tiles.filter(t=>t.sid&&t.scroll===null);return pinned.length>0&&pinned.every(t=>{const b=t.el.querySelector(".ext-tile-body");return b.scrollTop>=b.scrollHeight-b.clientHeight-2})})()'))
+        page.evaluate('()=>document.activeElement&&document.activeElement.blur()');page.keyboard.press('Enter');page.wait_for_timeout(200)
+        check('owned Enter/Space produce no approvals, even with focus on <body>',not dangerous,dangerous)
         cache=page.evaluate('JSON.stringify(chatTilingState.tiles.find(t=>t.sid===testSids[1]).messages)')
         fault={'mode':'503'}
         def history_fault(route):

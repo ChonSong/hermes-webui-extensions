@@ -27,7 +27,8 @@
         },
         "webui_api": {
           "read": [
-            "session"
+            "session",
+            "media"
           ],
           "write": []
         },

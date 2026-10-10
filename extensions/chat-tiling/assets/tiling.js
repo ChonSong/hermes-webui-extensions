@@ -55,7 +55,7 @@
     document.querySelector('#panelChat .session-search input')?.focus();
   }
   function makeTile(){
-    const t={id:T.nextId++,sid:null,title:'Empty snapshot',messages:[],rendered:null,scroll:null,generation:0,loading:false,error:null,el:null};
+    const t={id:T.nextId++,sid:null,title:'Empty snapshot',messages:[],rendered:null,scroll:null,lastTop:0,generation:0,loading:false,error:null,el:null};
     const el=document.createElement('section');el.className='ext-tile';el.dataset.tileId=String(t.id);
     const head=document.createElement('div');head.className='ext-tile-titlebar';
     const open=button('',()=>openTile(t.id));open.className='ext-tile-open';open.disabled=true;
@@ -68,14 +68,14 @@
     // Remember the reading position: hiding the grid (display:none) or
     // re-appending a card drops the browser's own scroll offset. A card at its
     // end (t.scroll===null) stays pinned to the latest message: only scrolling
-    // up unpins it, so reflow-driven scroll events cannot.
-    let lastTop=0;
+    // up unpins it, so reflow-driven scroll events cannot. restoreScroll()
+    // records its own writes in t.lastTop so they never read as the user.
     body.addEventListener('scroll',()=>{
       if(!t.rendered||!body.clientHeight)return;
       const top=body.scrollTop;
       if(top>=body.scrollHeight-body.clientHeight-2)t.scroll=null;
-      else if(t.scroll!==null||top<lastTop-1)t.scroll=top;
-      lastTop=top;
+      else if(t.scroll!==null||top<t.lastTop-1)t.scroll=top;
+      t.lastTop=top;
     },{passive:true});
     const inner=document.createElement('div');inner.className='ext-tile-msg-inner';body.append(inner);
     if(resizeObserver){resizeObserver.observe(body);resizeObserver.observe(inner);}
@@ -90,50 +90,70 @@
   }
   function paint(t){
     const open=t.el.querySelector('.ext-tile-open');open.querySelector('.ext-tile-open-label').textContent=t.title;
-    open.disabled=!t.sid||t.loading;open.setAttribute('aria-label',t.sid?'Open '+t.title+' in normal chat':'Empty snapshot');
+    // Busy controls stay focusable (aria-disabled): disabling the focused
+    // button would drop focus to <body>, where Enter reaches Core shortcuts.
+    open.disabled=!t.sid;open.setAttribute('aria-disabled',t.loading?'true':'false');open.setAttribute('aria-label',t.sid?'Open '+t.title+' in normal chat':'Empty snapshot');
     if(t.sid)open.title='Open in normal chat';else open.removeAttribute('title');
-    t.el.querySelector('.ext-tile-refresh').disabled=!t.sid||t.loading;
+    const refresh=t.el.querySelector('.ext-tile-refresh');refresh.disabled=!t.sid;refresh.setAttribute('aria-disabled',t.loading?'true':'false');
     t.el.querySelector('.ext-tile-expand').disabled=!t.sid;
     const label=t.el.querySelector('.ext-tile-footer span');
-    label.textContent=t.loading?'Loading history…':t.error?'Refresh failed; showing saved snapshot':t.sid?'Saved history · click the title to open':'Empty slot';
+    label.textContent=t.loading?'Loading history…':t.error?'Refresh failed; showing saved snapshot':t.sid?(isPhone()?'Saved history · tap the title to open':'Saved history · click the title to open'):'Empty slot';
     const inner=t.el.querySelector('.ext-tile-msg-inner'),empty=t.el.querySelector('.ext-tile-empty');
     empty.hidden=!!t.sid;empty.querySelector('p').textContent=emptyCopy();
     if(t.sid&&t.messages.length){
       // Re-render only when the history changed, then show the latest exchange
       // (chat surfaces open at the newest message).
       if(t.rendered!==t.messages){
-        window.renderTranscript(inner,t.messages,{skipEmpty:false});t.rendered=t.messages;t.scroll=null;
+        window.renderTranscript(inner,t.messages,{skipEmpty:false});bindMedia(inner,t.sid);t.rendered=t.messages;t.scroll=null;
       }
       restoreScroll(t);
     }else{t.rendered=null;t.scroll=null;inner.textContent=!t.sid?'':t.loading?'Loading history…':t.error?'History unavailable. Try Refresh history.':'No saved messages yet.';}
+  }
+  // Core's renderer authorizes local media with the ACTIVE session's id; a
+  // snapshot of another conversation must ask with its own id or Core 403s.
+  function bindMedia(root,sid){
+    root.querySelectorAll('[src],[href],[poster]').forEach(el=>{
+      for(const attr of ['src','href','poster']){
+        const raw=el.getAttribute(attr);if(!raw||!/(^|\/)api\/media\?/.test(raw))continue;
+        let url;try{url=new URL(raw,document.baseURI);}catch(_){continue;}
+        if(url.origin!==location.origin||!/\/api\/media$/.test(url.pathname))continue;
+        url.searchParams.set('session_id',sid);el.setAttribute(attr,url.pathname+url.search+url.hash);
+      }
+    });
   }
   function restoreScroll(t){
     const body=t.el.querySelector('.ext-tile-body');
     if(!body.clientHeight)return;
     body.scrollTop=t.scroll===null?body.scrollHeight:t.scroll;
+    t.lastTop=body.scrollTop;
   }
   function render(){
     if(!cells)return;
     if(T.maximizedId!==null&&!T.tiles.some(t=>t.id===T.maximizedId))T.maximizedId=null;
-    cells.replaceChildren(...T.tiles.map(t=>t.el));
+    const active=document.activeElement,want=T.tiles.map(t=>t.el);
+    want.forEach((el,i)=>{if(cells.children[i]!==el)cells.insertBefore(el,cells.children[i]||null);});
+    while(cells.children.length>want.length)cells.lastElementChild.remove();
     cells.classList.remove('ext-cols-2','ext-cols-3');cells.classList.add('ext-cols-'+T.cols);
     cells.classList.toggle('ext-tiling-expanded',T.maximizedId!==null);
+    // Settle every card's visibility first, so the grid's final row heights
+    // exist before paint() restores scroll positions.
+    T.tiles.forEach(t=>{t.el.hidden=T.maximizedId!==null&&t.id!==T.maximizedId;});
     T.tiles.forEach(t=>{
       const max=T.maximizedId===t.id;
-      t.el.hidden=T.maximizedId!==null&&!max;
       const expand=t.el.querySelector('.ext-tile-expand');
       expand.textContent=max?'Restore':'Expand';
       expand.setAttribute('aria-label',max?'Restore snapshot':'Expand snapshot');
       expand.setAttribute('aria-pressed',max?'true':'false');
       paint(t);
     });
+    if(active&&active!==document.activeElement&&active.isConnected&&grid.contains(active))active.focus({preventScroll:true});
     if(layoutGroup){
       const count=String(T.cols*T.rows);
       layoutGroup.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.count===count?'true':'false'));
     }
   }
   async function refreshTile(t){
-    if(!t.sid)return;
+    if(!t.sid||t.loading)return;
     const generation=++t.generation,epoch=T.epoch;t.loading=true;t.error=null;paint(t);
     try{
       const res=await fetch('api/session?session_id='+encodeURIComponent(t.sid)+'&messages=1&resolve_model=0&msg_limit=30&expand_renderable=1',{credentials:'same-origin'});
@@ -273,6 +293,7 @@
 .ext-tiling-launch{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;flex-shrink:0;background:none;border:none;border-radius:8px;color:var(--muted);cursor:pointer;-webkit-app-region:no-drag;-webkit-tap-highlight-color:transparent;transition:background-color .15s,color .15s}
 .ext-tiling-launch:hover{background:var(--hover-bg);color:var(--text)}
 .ext-tiling-launch[aria-expanded="true"]{background:var(--accent-bg);color:var(--accent-text)}
+.ext-tiling-launch[aria-expanded="true"]::after{display:none}
 .ext-tiling-launch svg{display:block;pointer-events:none}
 #mainChat.ext-tiling-browsing #messages{visibility:hidden}
 #mainChat.ext-tiling-browsing #composerWrap{display:none!important}
@@ -290,14 +311,14 @@
 .ext-tile-titlebar{display:flex;gap:4px;align-items:center;background:var(--surface);padding:6px;border-bottom:1px solid var(--border)}
 .ext-tile-open{flex:1;min-width:0;display:flex;align-items:center;gap:6px;text-align:left;font-weight:600}
 #ext-tile-grid .ext-tile-open{border-color:transparent;background:none}
-#ext-tile-grid .ext-tile-open:hover:not(:disabled){background:var(--hover-bg);color:var(--accent-text,var(--text))}
-#ext-tile-grid .ext-tile-open:hover:not(:disabled) .ext-tile-open-label{text-decoration:underline}
+#ext-tile-grid .ext-tile-open:hover:not(:disabled):not([aria-disabled="true"]){background:var(--hover-bg);color:var(--accent-text,var(--text))}
+#ext-tile-grid .ext-tile-open:hover:not(:disabled):not([aria-disabled="true"]) .ext-tile-open-label{text-decoration:underline}
 .ext-tile-open-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ext-tile-open-icon{flex-shrink:0;opacity:.7}
 .ext-tile-open:disabled .ext-tile-open-icon{display:none}
 #ext-tile-grid button{font:inherit;font-size:12px;border:1px solid var(--border);border-radius:5px;padding:5px 7px;background:var(--surface);color:var(--text);cursor:pointer}
-#ext-tile-grid button:hover:not(:disabled){background:var(--hover-bg)}
-#ext-tile-grid button:disabled{cursor:default;opacity:.6}
+#ext-tile-grid button:hover:not(:disabled):not([aria-disabled="true"]){background:var(--hover-bg)}
+#ext-tile-grid button:disabled,#ext-tile-grid button[aria-disabled="true"]{cursor:default;opacity:.6}
 #ext-tile-grid button:focus-visible,.ext-tiling-launch:focus-visible{outline:none;box-shadow:0 0 0 3px var(--focus-ring,var(--accent))}
 .ext-tile-body{flex:1;min-height:0;overflow:auto;padding:8px;font-family:var(--font-conversation,var(--font-ui))}
 .ext-tile-msg-inner{display:flex;flex-direction:column}
@@ -336,6 +357,16 @@
     [2,4,6].forEach(n=>{const b=button(String(n),()=>showGrid(...layouts[n]));b.dataset.count=String(n);b.setAttribute('aria-label',n+' snapshots');b.setAttribute('aria-pressed','false');layoutGroup.append(b);});
     controls.append(status,layoutGroup,button('Return to chat',()=>hideGrid()));cells=document.createElement('div');cells.className='ext-tiling-cells';grid.append(controls,cells);shell.append(grid);
     ['pointerdown','pointerup','touchstart','touchend','click','dblclick','keydown'].forEach(type=>document.addEventListener(type,sidebarSnapshot,{capture:true,passive:false}));
+    // Core answers a pending approval on Enter when focus is on <body>. The
+    // approval card is hidden behind the grid, so swallow that case while
+    // comparing and put focus back inside the grid.
+    document.addEventListener('keydown',e=>{
+      if(!T.visible||(e.key!=='Enter'&&e.key!==' '))return;
+      const a=document.activeElement;
+      if(a&&a!==document.body&&a!==document.documentElement)return;
+      e.preventDefault();e.stopImmediatePropagation();
+      grid.querySelector('.ext-tile-open:not([disabled]),.ext-tile-choose,button')?.focus();
+    },{capture:true});
     if(typeof window.registerHermesSessionOpenHandler==='function')window.registerHermesSessionOpenHandler((_sid,_data,opts)=>{if(opts?.preload&&T.visible)hideGrid(false);return {};});
     const main=document.querySelector('main');if(main){panelObserver=new MutationObserver(()=>{const chat=isChatView();toolbar.hidden=!chat;if(!chat)hideGrid(false);});panelObserver.observe(main,{attributes:true,attributeFilter:['class']});}
     window.chatTilingState=T;window.showGridExt=showGrid;window.hideGridExt=hideGrid;window.closeTileExt=closeTile;window.focusTileExt=openTile;window.addTilingSnapshot=addSnapshot;window.refreshTilingSnapshot=id=>{const t=T.tiles.find(t=>t.id===id);return t?refreshTile(t):Promise.resolve();};window.toggleMaxExt=toggleMax;

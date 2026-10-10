@@ -40,15 +40,21 @@ trying to repair, supersede or roll back Core's navigation.
 
 Same-origin read-only `/api/session` requests supply snapshot history. The
 extension uses Core's `renderTranscript` renderer and public `loadSession` and
-session-open hook. **Choose conversation** calls Core's own `expandSidebar()`
-(desktop) or `toggleMobileSidebar()` (phone), the same functions behind Core's
-sidebar buttons. On desktop that writes Core's `hermes-webui-sidebar-collapsed`
+session-open hook. When a saved message contains a local file or image, Core's
+renderer links it through the authenticated `/api/media` route; the extension
+rewrites those links to the snapshot's own session id so Core's per-session
+allow-list authorizes them (declared as a `media` read).
+
+**Choose conversation** calls Core's own `expandSidebar()` (desktop) or
+`toggleMobileSidebar()` (phone), the same functions behind Core's sidebar
+buttons. On desktop that writes Core's `hermes-webui-sidebar-collapsed`
 preference (declared as a shared key), so a collapsed sidebar stays open
 afterwards exactly as if you had opened it yourself. The extension writes no
 other storage, drafts or inflight state; does not read `INFLIGHT`; and does not
-call send, approval, cancel or delete APIs. No sidecar, filesystem access,
-remote scripts or external service is required, and the manifests declare no
-write endpoints.
+call send, approval, cancel or delete APIs. It needs no sidecar, remote script
+or external service, has no filesystem access of its own (local files are only
+reached through Core's media route above), and the manifests declare no write
+endpoints.
 
 `network_external` is declared `true` for one reason: snapshots are rendered by
 Core's `renderTranscript`, so if a saved message contains a remote Markdown

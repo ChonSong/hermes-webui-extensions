@@ -64,5 +64,25 @@ try{
  d.querySelector('.session-title').click();await new Promise(r=>setTimeout(r,10));
  check(drawerCloses===1&&w.chatTilingState.tiles.some(t=>t.sid==='B')&&opens.join(',')===opensBefore,'Phone selection adds history and closes the drawer without navigating');
  delete w.matchMedia;
+ // Keyboard focus survives card updates: Enter on <body> reaches Core's approval shortcut.
+ const fb=w.chatTilingState.tiles.find(t=>t.sid==='B');
+ const ex=fb.el.querySelector('.ext-tile-expand');ex.focus();ex.click();
+ check(d.activeElement===ex&&w.chatTilingState.maximizedId===fb.id,'Expand keeps keyboard focus');ex.click();
+ const rf=fb.el.querySelector('.ext-tile-refresh');rf.focus();hold=true;const pendingRefresh=w.refreshTilingSnapshot(fb.id);await Promise.resolve();
+ check(d.activeElement===rf&&rf.getAttribute('aria-disabled')==='true'&&!rf.disabled,'Refresh keeps keyboard focus while loading');
+ const readsBefore=requests.length;rf.click();await Promise.resolve();
+ check(requests.length===readsBefore,'No duplicate refresh while one is loading');
+ held();await pendingRefresh;
+ let bodyKeys=0;const countKeys=()=>bodyKeys++;d.addEventListener('keydown',countKeys);
+ d.activeElement.blur();d.body.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+ check(bodyKeys===0&&d.getElementById('ext-tile-grid').contains(d.activeElement),'Enter on <body> never reaches Core while comparing');
+ d.removeEventListener('keydown',countKeys);
+ // Core binds local media to the ACTIVE session; snapshots must use their own.
+ const realRender=w.renderTranscript;
+ w.renderTranscript=el=>{el.innerHTML='<img src="api/media?path=x.png&session_id=A"><a href="api/media?path=y.pdf&session_id=A&inline=1">y</a><img src="https://example.com/z.png">';};
+ await w.refreshTilingSnapshot(fb.id);
+ const media=[...fb.el.querySelectorAll('img,a')].map(el=>new URL(el.getAttribute('src')||el.getAttribute('href'),'http://localhost/'));
+ check(media[0].searchParams.get('session_id')==='B'&&media[1].searchParams.get('session_id')==='B'&&media[1].searchParams.get('inline')==='1'&&media[2].href==='https://example.com/z.png','Snapshot media is authorized with its own session');
+ w.renderTranscript=realRender;
  console.log(`Chat Tiling snapshot-only: ${checks} assertions passed`);
 }finally{w.hideGridExt();dom.window.close();}
