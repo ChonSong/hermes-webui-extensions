@@ -79,10 +79,12 @@ try{
  d.removeEventListener('keydown',countKeys);
  // Core binds local media to the ACTIVE session; snapshots must use their own.
  const realRender=w.renderTranscript;
- w.renderTranscript=el=>{el.innerHTML='<img src="api/media?path=x.png&session_id=A"><a href="api/media?path=y.pdf&session_id=A&inline=1">y</a><img src="https://example.com/z.png">';};
+ w.renderTranscript=el=>{el.innerHTML='<img src="api/media?path=x.png&session_id=A"><a href="api/media?path=y.pdf&session_id=A&inline=1">y</a><img src="https://example.com/z.png"><div class="pdf-preview-load" data-path="/ws/a &amp; b/report.pdf" data-snap="ab12">Loading report.pdf...</div>';};
  await w.refreshTilingSnapshot(fb.id);
  const media=[...fb.el.querySelectorAll('img,a')].map(el=>new URL(el.getAttribute('src')||el.getAttribute('href'),'http://localhost/'));
  check(media[0].searchParams.get('session_id')==='B'&&media[1].searchParams.get('session_id')==='B'&&media[1].searchParams.get('inline')==='1'&&media[2].href==='https://example.com/z.png','Snapshot media is authorized with its own session');
+ const fileLink=fb.el.querySelector('a.ext-tile-file'),fileUrl=fileLink&&new URL(fileLink.getAttribute('href'),'http://localhost/');
+ check(!fb.el.querySelector('.pdf-preview-load')&&fileUrl&&fileUrl.pathname==='/api/media'&&fileUrl.searchParams.get('path')==='/ws/a & b/report.pdf'&&fileUrl.searchParams.get('session_id')==='B'&&fileUrl.searchParams.get('download')==='1'&&fileUrl.searchParams.get('snap')==='ab12'&&fileLink.textContent==='Download report.pdf','Lazy file previews become download links for the snapshot session');
  w.renderTranscript=realRender;
  console.log(`Chat Tiling snapshot-only: ${checks} assertions passed`);
 }finally{w.hideGridExt();dom.window.close();}

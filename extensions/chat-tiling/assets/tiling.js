@@ -111,7 +111,19 @@
   }
   // Core's renderer authorizes local media with the ACTIVE session's id; a
   // snapshot of another conversation must ask with its own id or Core 403s.
+  // Lazy file previews (PDF/HTML/diff/CSV/Excalidraw) only load inside Core's
+  // own transcript, so snapshots show them as download links instead.
+  const PREVIEW_PLACEHOLDERS='.pdf-preview-load,.html-preview-load,.diff-inline-load,.csv-inline-load,.excalidraw-inline-load';
   function bindMedia(root,sid){
+    root.querySelectorAll(PREVIEW_PLACEHOLDERS).forEach(el=>{
+      const path=el.getAttribute('data-path');if(!path)return;
+      const url=new URL('api/media',document.baseURI);
+      url.searchParams.set('path',path);url.searchParams.set('session_id',sid);url.searchParams.set('download','1');
+      const snap=el.getAttribute('data-snap');if(snap)url.searchParams.set('snap',snap);
+      const link=document.createElement('a');link.className='ext-tile-file';link.href=url.pathname+url.search;
+      link.textContent='Download '+(path.split('/').pop()||path);
+      el.replaceWith(link);
+    });
     root.querySelectorAll('[src],[href],[poster]').forEach(el=>{
       for(const attr of ['src','href','poster']){
         const raw=el.getAttribute(attr);if(!raw||!/(^|\/)api\/media\?/.test(raw))continue;
@@ -322,6 +334,7 @@
 #ext-tile-grid button:focus-visible,.ext-tiling-launch:focus-visible{outline:none;box-shadow:0 0 0 3px var(--focus-ring,var(--accent))}
 .ext-tile-body{flex:1;min-height:0;overflow:auto;padding:8px;font-family:var(--font-conversation,var(--font-ui))}
 .ext-tile-msg-inner{display:flex;flex-direction:column}
+.ext-tile-file{display:inline-block;margin:4px 0;color:var(--accent-text,var(--accent));text-decoration:underline;overflow-wrap:anywhere}
 .ext-tile-msg-inner .msg-row{min-width:0}.ext-tile-msg-inner .msg-body{min-width:0}.ext-tile-msg-inner pre{max-width:100%;overflow:auto}
 .ext-tile-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;height:100%;min-height:120px;text-align:center;color:var(--muted);font-size:13px;padding:12px}
 .ext-tile-empty p{margin:0;max-width:28ch}

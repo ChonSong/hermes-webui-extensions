@@ -22,7 +22,8 @@
         "storage": {
           "owned": [],
           "shared_webui_keys": [
-            "hermes-webui-sidebar-collapsed"
+            "hermes-webui-sidebar-collapsed",
+            "hermes-media-playback-rate"
           ]
         },
         "webui_api": {

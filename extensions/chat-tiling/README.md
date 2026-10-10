@@ -49,7 +49,11 @@ allow-list authorizes them (declared as a `media` read).
 `toggleMobileSidebar()` (phone), the same functions behind Core's sidebar
 buttons. On desktop that writes Core's `hermes-webui-sidebar-collapsed`
 preference (declared as a shared key), so a collapsed sidebar stays open
-afterwards exactly as if you had opened it yourself. The extension writes no
+afterwards exactly as if you had opened it yourself. Snapshots also contain
+Core-rendered audio players, whose speed control saves Core's
+`hermes-media-playback-rate` preference (also declared) exactly as it does in
+normal chat. File previews that Core loads lazily (PDF, HTML, diff, CSV,
+Excalidraw) appear in snapshots as download links. The extension writes no
 other storage, drafts or inflight state; does not read `INFLIGHT`; and does not
 call send, approval, cancel or delete APIs. It needs no sidecar, remote script
 or external service, has no filesystem access of its own (local files are only
