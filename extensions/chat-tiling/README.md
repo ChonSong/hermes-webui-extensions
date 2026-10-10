@@ -53,12 +53,12 @@ afterwards exactly as if you had opened it yourself. Snapshots also contain
 Core-rendered audio players, whose speed control saves Core's
 `hermes-media-playback-rate` preference (also declared) exactly as it does in
 normal chat. File previews that Core loads lazily (PDF, HTML, diff, CSV,
-Excalidraw) appear in snapshots as download links. The extension writes no
-other storage, drafts or inflight state; does not read `INFLIGHT`; and does not
-call send, approval, cancel or delete APIs. It needs no sidecar, remote script
-or external service, has no filesystem access of its own (local files are only
-reached through Core's media route above), and the manifests declare no write
-endpoints.
+Excalidraw) appear in snapshots as download chips, the way Core shows a file it
+cannot preview. The extension writes no other storage, drafts or inflight
+state; does not read `INFLIGHT`; and does not call send, approval, cancel or
+delete APIs. It needs no sidecar, remote script or external service, has no
+filesystem access of its own (local files are only reached through Core's media
+route above), and the manifests declare no write endpoints.
 
 `network_external` is declared `true` for one reason: snapshots are rendered by
 Core's `renderTranscript`, so if a saved message contains a remote Markdown
