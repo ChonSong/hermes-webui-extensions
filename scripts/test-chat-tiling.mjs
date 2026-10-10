@@ -44,5 +44,24 @@ try{
  await w.showGridExt(2,2);check(!handlers[0]('C',null,{preload:true}).cancel&&!w.chatTilingState.visible,'Native navigation exits grid without veto');
  check(requests.every(url=>url.startsWith('api/session?')),'Only history reads');
  for(const forbidden of ['cancelSessionStream','_saveComposerDraft','_chatTilingLoad','INFLIGHT[','respondApproval'])check(!source.includes(forbidden),`No ${forbidden} lifecycle ownership`);
+ // Maintainer regressions: launcher, expansion trim, freed capacity, phone drawer.
+ check(d.querySelector('#ext-tiling-toolbar button')?.getAttribute('aria-label')==='Compare history'&&!d.querySelector('#ext-tiling-toolbar button').textContent.trim(),'Launcher is a labelled icon button');
+ while(w.chatTilingState.tiles.length)w.closeTileExt(w.chatTilingState.tiles[0].id);
+ await w.showGridExt(2,2);
+ const firstEmpty=w.chatTilingState.tiles.find(t=>!t.sid);
+ w.toggleMaxExt(firstEmpty.id);
+ check(d.querySelector(`.ext-tile[data-tile-id="${firstEmpty.id}"] .ext-tile-expand`).getAttribute('aria-label')==='Restore snapshot','Expanded control is announced as Restore');
+ await w.showGridExt(2,1);
+ check(!w.chatTilingState.tiles.includes(firstEmpty)&&w.chatTilingState.maximizedId===null&&[...d.querySelectorAll('.ext-tile')].some(el=>!el.hidden),'Trimming the expanded card clears expansion');
+ await w.addTilingSnapshot('B');
+ w.closeTileExt(w.chatTilingState.tiles.find(t=>t.sid==='B').id);
+ check(w.chatTilingState.tiles.length===1&&await w.addTilingSnapshot('C')&&w.chatTilingState.tiles.some(t=>t.sid==='C'),'A closed card frees capacity for the next snapshot');
+ await w.showGridExt(2,2);
+ let drawerCloses=0;const aside=d.querySelector('aside');aside.classList.add('sidebar','mobile-open');
+ w.matchMedia=()=>({matches:false});w.closeMobileSidebar=()=>{drawerCloses++;aside.classList.remove('mobile-open');};
+ const opensBefore=opens.join(',');
+ d.querySelector('.session-title').click();await new Promise(r=>setTimeout(r,10));
+ check(drawerCloses===1&&w.chatTilingState.tiles.some(t=>t.sid==='B')&&opens.join(',')===opensBefore,'Phone selection adds history and closes the drawer without navigating');
+ delete w.matchMedia;
  console.log(`Chat Tiling snapshot-only: ${checks} assertions passed`);
 }finally{w.hideGridExt();dom.window.close();}

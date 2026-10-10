@@ -57,7 +57,11 @@ try:
             r=ctx.request.post(url+'/api/session/draft',data={'session_id':sid,'text':text,'files':files or []})
             assert r.ok,r.text()
         def persisted(sid):
-            return ctx.request.get(url+'/api/session?session_id='+sid+'&messages=0&resolve_model=0').json()['session'].get('draft')
+            # Core persists drafts as session.composer_draft; read them through the
+            # dedicated draft endpoint so a wrong key can never compare null to null.
+            r=ctx.request.get(url+'/api/session/draft?session_id='+sid)
+            assert r.ok,r.text()
+            return r.json()['draft']
         def boot():
             page=ctx.new_page();errors=[];requests=[]
             page.on('pageerror',lambda e:errors.append(str(e)))
@@ -75,6 +79,7 @@ try:
         page,errors,requests=boot()
         page.evaluate('()=>{document.getElementById("msg").value="A-local-unsent";S.pendingFiles=[{name:"A-unsent.txt",path:"A-unsent.txt"}];window.testFiles=JSON.stringify(S.pendingFiles)}')
         baseline={sid:persisted(sid) for sid in sids}
+        check('seeded drafts are real, non-empty baselines',baseline[sids[0]].get('text')=='A-original' and baseline[sids[1]].get('text')=='B-original' and [f.get('name') for f in baseline[sids[1]].get('files',[])]==['B-original.txt'],baseline)
         if os.environ.get('TILING_LEGACY_BOUNDARY_PROBE')=='1':
             page.locator('#ext-tiling-toolbar [data-layout="2"]').click()
             r=page.evaluate('()=>({composer:getComputedStyle(document.getElementById("composerWrap")).display,live:!!document.querySelector(".ext-tile--focused")})')
@@ -93,6 +98,7 @@ try:
         check('snapshot controls leave persisted drafts untouched',{sid:persisted(sid) for sid in sids}==baseline)
         for width,height in [(1440,950),(768,1024),(390,844)]:
             page.set_viewport_size({'width':width,'height':height})
+            page.wait_for_timeout(400)  # let Core's 250ms drawer/sidebar transitions settle before capture
             for dark in [False,True]:
                 page.evaluate('dark=>document.documentElement.classList.toggle("dark",dark)',dark)
                 page.wait_for_timeout(100)
@@ -105,22 +111,34 @@ try:
                 page.screenshot(path=str(OUT/f'diagnostic-{width}.png'))
                 check(f'populated {width}px {"dark" if dark else "light"}: bounded opaque scrollable cards',ok,geometry)
                 page.screenshot(path=str(OUT/f'populated-{width}-{"dark" if dark else "light"}.png'))
-        # Actual touch gesture through native mobile sidebar, with a duplicate
-        # comparison selection: never hand off or save the composer.
-        page.locator('#btnHamburger').click()
-        touchrow=page.locator(f'.session-item[data-sid="{sids[1]}"] .session-title')
-        box=touchrow.bounding_box();assert box
-        page.touchscreen.tap(box['x']+box['width']/2,box['y']+box['height']/2)
+        # Phone flow: an empty card's Choose conversation opens Core's drawer;
+        # a real touch on a row adds history, closes the drawer and never navigates.
+        page.evaluate('async()=>await showGridExt(2,2)')
+        page.wait_for_timeout(100)
+        page.locator('.ext-tile-choose').first.tap()
         page.wait_for_timeout(400)
-        check('native mobile touch selection adds/reuses history without navigation',page.evaluate('chatTilingState.visible&&normalCalls.length===0&&S.session.session_id===testSids[0]'))
-        page.locator('.mobile-sidebar-close').click()
+        check('Choose conversation opens the phone drawer with the comparison hint',page.evaluate('!!document.querySelector(".sidebar.mobile-open")&&!!document.querySelector(".sidebar .ext-tiling-sidebar-hint")'))
+        page.screenshot(path=str(OUT/'mobile-390-drawer-picking.png'))
+        def tap_row(sid):
+            touchrow=page.locator(f'.session-item[data-sid="{sid}"] .session-title')
+            box=touchrow.bounding_box();assert box
+            page.touchscreen.tap(box['x']+box['width']/2,box['y']+box['height']/2)
+            page.wait_for_timeout(500)
+        tap_row(sids[2])
+        check('native mobile touch adds history, closes the drawer, no navigation',page.evaluate('chatTilingState.visible&&chatTilingState.tiles.some(t=>t.sid===testSids[2])&&!document.querySelector(".sidebar.mobile-open")&&normalCalls.length===0&&S.session.session_id===testSids[0]'))
+        page.screenshot(path=str(OUT/'mobile-390-after-pick.png'))
+        page.locator('#btnHamburger').click()
+        page.wait_for_timeout(400)
+        tap_row(sids[1])
+        check('duplicate mobile touch reuses history, closes the drawer, no navigation',page.evaluate('chatTilingState.tiles.filter(t=>t.sid===testSids[1]).length===1&&!document.querySelector(".sidebar.mobile-open")&&normalCalls.length===0&&S.session.session_id===testSids[0]'))
         page.set_viewport_size({'width':1440,'height':950})
         b_id=page.evaluate('chatTilingState.tiles.find(t=>t.sid===testSids[1]).id')
         b=page.locator(f'.ext-tile[data-tile-id="{b_id}"]')
         b.get_by_role('button',name='Expand snapshot',exact=True).focus()
         b.get_by_role('button',name='Expand snapshot',exact=True).press('Enter')
         check('keyboard expand keeps grid and Core session',page.evaluate('chatTilingState.visible&&chatTilingState.maximizedId!==null&&normalCalls.length===0'))
-        b.get_by_role('button',name='Expand snapshot',exact=True).press(' ')
+        check('expanded control is announced as Restore',b.get_by_role('button',name='Restore snapshot',exact=True).get_attribute('aria-pressed')=='true')
+        b.get_by_role('button',name='Restore snapshot',exact=True).press(' ')
         check('Space restores comparison without navigation',page.evaluate('chatTilingState.maximizedId===null&&normalCalls.length===0'))
         # Actual Core shortcut/card, fake approval ID; every response is trapped.
         def synthetic_approval():
@@ -136,7 +154,7 @@ try:
         page.wait_for_function('() => chatTilingState.tiles.every(t=>!t.loading)')
         b.get_by_role('button',name='Expand snapshot',exact=True).focus()
         b.get_by_role('button',name='Expand snapshot',exact=True).press(' ')
-        b.get_by_role('button',name='Expand snapshot',exact=True).press(' ')
+        b.get_by_role('button',name='Restore snapshot',exact=True).press(' ')
         check('owned Enter/Space produce no approvals',not dangerous,dangerous)
         cache=page.evaluate('JSON.stringify(chatTilingState.tiles.find(t=>t.sid===testSids[1]).messages)')
         fault={'mode':'503'}

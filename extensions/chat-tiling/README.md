@@ -4,12 +4,17 @@ Compare saved conversation history in 2, 4 or 6 snapshot cards. There is only
 one input area: Core's existing composer, shown in normal chat. Every grid cell
 is a history snapshot; none is a transparent live pane.
 
-Click **Compare history** to open the grid. Its first empty slot loads the
-current conversation's recent saved history. Click sidebar conversation titles
-to add more snapshots. On narrow screens the cards stack vertically. Each card
-has **Refresh history**, **Expand**, and **Close** controls. Refresh reads saved
-history again; it does not subscribe to a stream. Responses are limited to the
-most recent 30 visible rows. Open normal chat to read the full conversation.
+Open the grid with the **Compare history** icon button at the right of the title
+bar. Its first slot loads the current conversation's recent saved history.
+While comparing, the conversation list shows a short hint and a click (or tap)
+on a conversation adds it as a snapshot instead of opening it. Empty slots have
+a **Choose conversation** button that reveals Core's own conversation list (the
+drawer on phones, which closes again after you pick). Switch between 2, 4 and 6
+slots with the segmented control. Narrow grids stack the cards in one column.
+Each card has **Refresh history**, **Expand**/**Restore**, and **Close**
+controls. Refresh reads saved history again; it does not subscribe to a stream.
+Responses are limited to the most recent 30 visible rows. Open normal chat to
+read the full conversation.
 
 Click a card's title to leave the grid and use Core's ordinary `loadSession`
 navigation. Core owns the draft, attachments, profile/model, approvals, sends
@@ -35,10 +40,14 @@ trying to repair, supersede or roll back Core's navigation.
 
 Same-origin read-only `/api/session` requests supply snapshot history. The
 extension uses Core's `renderTranscript` renderer and public `loadSession` and
-session-open hook. It does not write storage, drafts or inflight state; does not
-read `INFLIGHT`; and does not call send, approval, cancel or delete APIs. No
-sidecar, filesystem access, remote scripts or external service is required.
-Both manifests declare no write endpoints and no shared storage keys.
+session-open hook. **Choose conversation** calls Core's own `expandSidebar()`
+(desktop) or `toggleMobileSidebar()` (phone), the same functions behind Core's
+sidebar buttons, so a collapsed desktop sidebar stays open afterwards exactly as
+if you had opened it yourself. The extension does not write storage, drafts or
+inflight state; does not read `INFLIGHT`; and does not call send, approval,
+cancel or delete APIs. No sidecar, filesystem access, remote scripts or external
+service is required. Both manifests declare no write endpoints and no shared
+storage keys.
 
 Core normal navigation may still fail, including during streaming recovery.
 The extension hands off once, restores normal chat and never performs a failed
