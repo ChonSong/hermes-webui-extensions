@@ -6,7 +6,16 @@
   let grid=null,cells=null,status=null,layoutGroup=null,launcher=null,panelObserver=null,sidTimer=null,sidebarHint=null;
   let savedNodes=[],returnFocus=null,observedSid=null;
   const sidebarPresses=new WeakMap();
+  // Re-pin cards that sit at their latest message when a layout change,
+  // sidebar toggle or window resize changes their size.
+  const resizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(entries=>{
+    for(const entry of entries){
+      const t=T.tiles.find(t=>t.el&&t.el.contains(entry.target));
+      if(t&&t.rendered&&t.scroll===null)restoreScroll(t);
+    }
+  }):null;
   const layouts={2:[2,1],4:[2,2],6:[3,2]};
+  const ICON_OPEN='<svg class="ext-tile-open-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>';
   const ICON_COMPARE='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg>';
   function currentSid(){
     try{return typeof S!=='undefined'?S.session?.session_id||null:null;}catch(_){return null;}
@@ -46,15 +55,30 @@
     document.querySelector('#panelChat .session-search input')?.focus();
   }
   function makeTile(){
-    const t={id:T.nextId++,sid:null,title:'Empty snapshot',messages:[],generation:0,loading:false,error:null,el:null};
+    const t={id:T.nextId++,sid:null,title:'Empty snapshot',messages:[],rendered:null,scroll:null,generation:0,loading:false,error:null,el:null};
     const el=document.createElement('section');el.className='ext-tile';el.dataset.tileId=String(t.id);
     const head=document.createElement('div');head.className='ext-tile-titlebar';
-    const open=button('Empty snapshot',()=>openTile(t.id));open.className='ext-tile-open';open.disabled=true;
+    const open=button('',()=>openTile(t.id));open.className='ext-tile-open';open.disabled=true;
+    const openLabel=document.createElement('span');openLabel.className='ext-tile-open-label';openLabel.textContent='Empty snapshot';
+    open.append(openLabel);open.insertAdjacentHTML('beforeend',ICON_OPEN);
     const expand=button('Expand',()=>toggleMax(t.id));expand.className='ext-tile-expand';
     const close=button('Close',()=>closeTile(t.id));close.className='ext-tile-close';close.setAttribute('aria-label','Close snapshot');
     head.append(open,expand,close);
     const body=document.createElement('div');body.className='ext-tile-body';
+    // Remember the reading position: hiding the grid (display:none) or
+    // re-appending a card drops the browser's own scroll offset. A card at its
+    // end (t.scroll===null) stays pinned to the latest message: only scrolling
+    // up unpins it, so reflow-driven scroll events cannot.
+    let lastTop=0;
+    body.addEventListener('scroll',()=>{
+      if(!t.rendered||!body.clientHeight)return;
+      const top=body.scrollTop;
+      if(top>=body.scrollHeight-body.clientHeight-2)t.scroll=null;
+      else if(t.scroll!==null||top<lastTop-1)t.scroll=top;
+      lastTop=top;
+    },{passive:true});
     const inner=document.createElement('div');inner.className='ext-tile-msg-inner';body.append(inner);
+    if(resizeObserver){resizeObserver.observe(body);resizeObserver.observe(inner);}
     const empty=document.createElement('div');empty.className='ext-tile-empty';
     const emptyText=document.createElement('p');
     const choose=button('Choose conversation',openPicker);choose.className='ext-tile-choose';
@@ -65,15 +89,28 @@
     el.append(head,body,footer);t.el=el;T.tiles.push(t);return t;
   }
   function paint(t){
-    const open=t.el.querySelector('.ext-tile-open');open.textContent=t.title;
+    const open=t.el.querySelector('.ext-tile-open');open.querySelector('.ext-tile-open-label').textContent=t.title;
     open.disabled=!t.sid||t.loading;open.setAttribute('aria-label',t.sid?'Open '+t.title+' in normal chat':'Empty snapshot');
+    if(t.sid)open.title='Open in normal chat';else open.removeAttribute('title');
     t.el.querySelector('.ext-tile-refresh').disabled=!t.sid||t.loading;
+    t.el.querySelector('.ext-tile-expand').disabled=!t.sid;
     const label=t.el.querySelector('.ext-tile-footer span');
-    label.textContent=t.loading?'Loading history…':t.error?'Refresh failed; showing saved snapshot':t.sid?'Saved history · open to chat':'Empty slot';
+    label.textContent=t.loading?'Loading history…':t.error?'Refresh failed; showing saved snapshot':t.sid?'Saved history · click the title to open':'Empty slot';
     const inner=t.el.querySelector('.ext-tile-msg-inner'),empty=t.el.querySelector('.ext-tile-empty');
     empty.hidden=!!t.sid;empty.querySelector('p').textContent=emptyCopy();
-    if(t.sid&&t.messages.length)window.renderTranscript(inner,t.messages,{skipEmpty:false});
-    else{inner.textContent=!t.sid?'':t.loading?'Loading history…':t.error?'History unavailable. Try Refresh history.':'No saved messages yet.';}
+    if(t.sid&&t.messages.length){
+      // Re-render only when the history changed, then show the latest exchange
+      // (chat surfaces open at the newest message).
+      if(t.rendered!==t.messages){
+        window.renderTranscript(inner,t.messages,{skipEmpty:false});t.rendered=t.messages;t.scroll=null;
+      }
+      restoreScroll(t);
+    }else{t.rendered=null;t.scroll=null;inner.textContent=!t.sid?'':t.loading?'Loading history…':t.error?'History unavailable. Try Refresh history.':'No saved messages yet.';}
+  }
+  function restoreScroll(t){
+    const body=t.el.querySelector('.ext-tile-body');
+    if(!body.clientHeight)return;
+    body.scrollTop=t.scroll===null?body.scrollHeight:t.scroll;
   }
   function render(){
     if(!cells)return;
@@ -123,10 +160,14 @@
     if(!t){notice('Close a snapshot or choose a larger layout to add another.');return false;}
     t.sid=sid;t.title='Conversation history';render();await refreshTile(t);return true;
   }
+  function dropTile(t){
+    ++t.generation;
+    if(resizeObserver){resizeObserver.unobserve(t.el.querySelector('.ext-tile-body'));resizeObserver.unobserve(t.el.querySelector('.ext-tile-msg-inner'));}
+    T.tiles.splice(T.tiles.indexOf(t),1);
+  }
   function closeTile(id){
     const index=T.tiles.findIndex(t=>t.id===id);if(index<0)return;
-    const t=T.tiles[index];
-    ++t.generation;T.tiles.splice(index,1);
+    dropTile(T.tiles[index]);
     if(T.maximizedId===id)T.maximizedId=null;
     if(!T.tiles.length){hideGrid();return;}
     render();
@@ -180,7 +221,7 @@
     const count=cols*rows;if(!layouts[count])return;
     if(T.tiles.filter(t=>t.sid).length>count){notice('Close snapshots before reducing the layout.');render();return;}
     T.cols=cols;T.rows=rows;const opening=!T.visible;
-    while(T.tiles.length>count){const t=T.tiles.find(t=>!t.sid);if(!t)break;++t.generation;T.tiles.splice(T.tiles.indexOf(t),1);}
+    while(T.tiles.length>count){const t=T.tiles.find(t=>!t.sid);if(!t)break;dropTile(t);}
     while(T.tiles.length<count)makeTile();
     if(!T.visible){
       T.visible=true;++T.epoch;returnFocus=document.activeElement;saveAccessibility();
@@ -247,7 +288,13 @@
 .ext-tiling-cells.ext-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .ext-tile{display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg)}
 .ext-tile-titlebar{display:flex;gap:4px;align-items:center;background:var(--surface);padding:6px;border-bottom:1px solid var(--border)}
-.ext-tile-open{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-weight:600}
+.ext-tile-open{flex:1;min-width:0;display:flex;align-items:center;gap:6px;text-align:left;font-weight:600}
+#ext-tile-grid .ext-tile-open{border-color:transparent;background:none}
+#ext-tile-grid .ext-tile-open:hover:not(:disabled){background:var(--hover-bg);color:var(--accent-text,var(--text))}
+#ext-tile-grid .ext-tile-open:hover:not(:disabled) .ext-tile-open-label{text-decoration:underline}
+.ext-tile-open-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ext-tile-open-icon{flex-shrink:0;opacity:.7}
+.ext-tile-open:disabled .ext-tile-open-icon{display:none}
 #ext-tile-grid button{font:inherit;font-size:12px;border:1px solid var(--border);border-radius:5px;padding:5px 7px;background:var(--surface);color:var(--text);cursor:pointer}
 #ext-tile-grid button:hover:not(:disabled){background:var(--hover-bg)}
 #ext-tile-grid button:disabled{cursor:default;opacity:.6}
@@ -264,8 +311,9 @@
 .sidebar.ext-tiling-picking #sessionList .session-item[data-sid]{cursor:copy}
 @container (max-width:900px){.ext-tiling-cells.ext-cols-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @container (max-width:620px){.ext-tiling-cells,.ext-tiling-cells.ext-cols-3{grid-template-columns:minmax(0,1fr)}.ext-tiling-cells{grid-auto-rows:minmax(260px,420px)}.ext-tiling-cells.ext-tiling-expanded{grid-auto-rows:minmax(260px,1fr)}.ext-tiling-controls>span{flex-basis:100%}}
-@media(max-width:640px){#ext-tiling-toolbar{position:static;height:auto;margin:0}.ext-tiling-launch{width:44px;height:44px}#ext-tile-grid button,#ext-tile-grid .ext-tiling-layout button{min-height:44px;min-width:44px}
+@media(max-width:900px){#ext-tiling-toolbar{position:static;height:auto;margin:0}.ext-tiling-launch{width:44px;height:44px}
 .app-titlebar:has(#ext-tiling-toolbar:not([hidden])) .app-titlebar-spacer{display:none}}
+@media(max-width:640px){#ext-tile-grid button,#ext-tile-grid .ext-tiling-layout button{min-height:44px;min-width:44px}}
 @media(hover:none){.ext-tiling-launch.has-tooltip::after{display:none}}
 @media(prefers-reduced-motion:reduce){.ext-tiling-launch{transition:none}}
 `;document.head.append(style);
@@ -274,8 +322,10 @@
     launcher.className='ext-tiling-launch has-tooltip has-tooltip--bottom-right';launcher.innerHTML=ICON_COMPARE;
     launcher.setAttribute('aria-label','Compare history');launcher.dataset.tooltip='Compare history';
     launcher.setAttribute('aria-expanded','false');launcher.setAttribute('aria-controls','ext-tile-grid');toolbar.append(launcher);
-    // In-flow on phones (before Core's new-chat/reload buttons); absolutely
-    // positioned on wider screens so Core's centered title is unaffected.
+    // In-flow at <=900px, where Core's titlebar is space-between: it takes the
+    // decorative spacer's slot, before Core's new-chat/reload buttons, so it can
+    // never sit on the PWA reload button. Above 900px Core centers its controls,
+    // so the launcher is absolutely positioned and the title does not move.
     const before=document.getElementById('btnTitlebarNewChat');
     if(before&&before.parentNode===titlebar)titlebar.insertBefore(toolbar,before);else titlebar.append(toolbar);
     grid=document.createElement('div');grid.id='ext-tile-grid';grid.hidden=true;grid.setAttribute('role','region');grid.setAttribute('aria-label','Conversation history snapshots');

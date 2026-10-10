@@ -42,12 +42,20 @@ Same-origin read-only `/api/session` requests supply snapshot history. The
 extension uses Core's `renderTranscript` renderer and public `loadSession` and
 session-open hook. **Choose conversation** calls Core's own `expandSidebar()`
 (desktop) or `toggleMobileSidebar()` (phone), the same functions behind Core's
-sidebar buttons, so a collapsed desktop sidebar stays open afterwards exactly as
-if you had opened it yourself. The extension does not write storage, drafts or
-inflight state; does not read `INFLIGHT`; and does not call send, approval,
-cancel or delete APIs. No sidecar, filesystem access, remote scripts or external
-service is required. Both manifests declare no write endpoints and no shared
-storage keys.
+sidebar buttons. On desktop that writes Core's `hermes-webui-sidebar-collapsed`
+preference (declared as a shared key), so a collapsed sidebar stays open
+afterwards exactly as if you had opened it yourself. The extension writes no
+other storage, drafts or inflight state; does not read `INFLIGHT`; and does not
+call send, approval, cancel or delete APIs. No sidecar, filesystem access,
+remote scripts or external service is required, and the manifests declare no
+write endpoints.
+
+`network_external` is declared `true` for one reason: snapshots are rendered by
+Core's `renderTranscript`, so if a saved message contains a remote Markdown
+image, the browser requests it just as Core's own transcript would when you open
+that conversation. Current Core blocks remote images by default through its
+`img-src` CSP (operators can allowlist hosts); older Core versions load them.
+The extension itself never contacts an external origin.
 
 Core normal navigation may still fail, including during streaming recovery.
 The extension hands off once, restores normal chat and never performs a failed

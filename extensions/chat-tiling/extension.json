@@ -34,7 +34,9 @@
     },
     "storage": {
       "owned": [],
-      "shared_webui_keys": []
+      "shared_webui_keys": [
+        "hermes-webui-sidebar-collapsed"
+      ]
     },
     "loopback_sidecar": false,
     "native_host": false,
@@ -42,6 +44,6 @@
       "arbitrary": false,
       "serves_bundled_assets": true
     },
-    "network_external": false
+    "network_external": true
   }
 }

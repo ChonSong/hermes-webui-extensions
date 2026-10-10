@@ -21,7 +21,9 @@
         },
         "storage": {
           "owned": [],
-          "shared_webui_keys": []
+          "shared_webui_keys": [
+            "hermes-webui-sidebar-collapsed"
+          ]
         },
         "webui_api": {
           "read": [
@@ -30,7 +32,7 @@
           "write": []
         },
         "webui_navigation": true,
-        "network_external": false,
+        "network_external": true,
         "filesystem": {
           "arbitrary": false,
           "serves_bundled_assets": true

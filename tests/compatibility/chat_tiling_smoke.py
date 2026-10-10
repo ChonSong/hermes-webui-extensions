@@ -57,11 +57,11 @@ try:
             r=ctx.request.post(url+'/api/session/draft',data={'session_id':sid,'text':text,'files':files or []})
             assert r.ok,r.text()
         def persisted(sid):
-            # Core persists drafts as session.composer_draft; read them through the
-            # dedicated draft endpoint so a wrong key can never compare null to null.
-            r=ctx.request.get(url+'/api/session/draft?session_id='+sid)
+            # Core persists drafts as session.composer_draft (reading `draft`
+            # compared null to null). The baseline assertion below proves the key.
+            r=ctx.request.get(url+'/api/session?session_id='+sid+'&messages=0&resolve_model=0')
             assert r.ok,r.text()
-            return r.json()['draft']
+            return r.json()['session']['composer_draft']
         def boot():
             page=ctx.new_page();errors=[];requests=[]
             page.on('pageerror',lambda e:errors.append(str(e)))
@@ -95,6 +95,12 @@ try:
         check('sidebar comparison uses real saved A/B history without navigation',state['sid']==sids[0] and not state['calls'] and 'Saved body A' in state['body'] and 'Saved body B' in state['body'],state)
         check('sole original composer and attachments preserved/inert',state['inputs']==1 and state['value']=='A-local-unsent' and state['files']==page.evaluate('testFiles') and state['inert'] and state['hidden']=='none' and state['nativeSame'],state)
         check('all cards are opaque snapshots; no live owner',not state['live'])
+        scroll=page.evaluate('()=>chatTilingState.tiles.filter(t=>t.sid).map(t=>{const b=t.el.querySelector(".ext-tile-body");return {top:b.scrollTop,max:b.scrollHeight-b.clientHeight}})')
+        check('snapshots open at the latest exchange',len(scroll)==2 and all(s['max']>0 and s['top']>=s['max']-2 for s in scroll),scroll)
+        page.evaluate('()=>{chatTilingState.tiles[0].el.querySelector(".ext-tile-body").scrollTop=40}')
+        page.wait_for_timeout(100)
+        page.evaluate('()=>hideGridExt(false)');page.evaluate('async()=>await showGridExt(2,1)')
+        check('reading position survives leaving and reopening the grid',page.evaluate('chatTilingState.tiles[0].el.querySelector(".ext-tile-body").scrollTop')==40)
         check('snapshot controls leave persisted drafts untouched',{sid:persisted(sid) for sid in sids}==baseline)
         for width,height in [(1440,950),(768,1024),(390,844)]:
             page.set_viewport_size({'width':width,'height':height})
@@ -115,7 +121,7 @@ try:
         # a real touch on a row adds history, closes the drawer and never navigates.
         page.evaluate('async()=>await showGridExt(2,2)')
         page.wait_for_timeout(100)
-        page.locator('.ext-tile-choose').first.tap()
+        page.locator('.ext-tile-empty:not([hidden]) .ext-tile-choose').first.tap()
         page.wait_for_timeout(400)
         check('Choose conversation opens the phone drawer with the comparison hint',page.evaluate('!!document.querySelector(".sidebar.mobile-open")&&!!document.querySelector(".sidebar .ext-tiling-sidebar-hint")'))
         page.screenshot(path=str(OUT/'mobile-390-drawer-picking.png'))

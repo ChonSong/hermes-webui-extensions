@@ -49,6 +49,7 @@ try{
  while(w.chatTilingState.tiles.length)w.closeTileExt(w.chatTilingState.tiles[0].id);
  await w.showGridExt(2,2);
  const firstEmpty=w.chatTilingState.tiles.find(t=>!t.sid);
+ check(firstEmpty.el.querySelector('.ext-tile-expand').disabled&&!w.chatTilingState.tiles.find(t=>t.sid).el.querySelector('.ext-tile-expand').disabled,'Only populated snapshots can be expanded');
  w.toggleMaxExt(firstEmpty.id);
  check(d.querySelector(`.ext-tile[data-tile-id="${firstEmpty.id}"] .ext-tile-expand`).getAttribute('aria-label')==='Restore snapshot','Expanded control is announced as Restore');
  await w.showGridExt(2,1);
