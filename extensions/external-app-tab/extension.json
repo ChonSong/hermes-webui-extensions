@@ -1,8 +1,8 @@
 {
   "id": "external-app-tab",
   "name": "External App Tab",
-  "description": "Pin a compatible self-hosted web app (Grafana, a dashboard, or another framable tool) as a tab inside Hermes WebUI via an iframe. Adds a rail button that opens a full-area panel framing a configurable URL.",
-  "version": "0.1.0",
+  "description": "Pin one or more compatible self-hosted web apps (Grafana, a dashboard, or another framable tool) as tabs inside Hermes WebUI via iframes. Adds a rail button per app that opens a full-area overlay panel framing the selected app's URL, with a manager for reorder and per-app controls.",
+  "version": "0.5.0",
   "author": "nesquena-hermes",
   "assets": {
     "scripts": [
@@ -45,19 +45,5 @@
     "network_external": true,
     "embeds_iframe": true,
     "requires_csp_frame_extra": true
-  },
-  "settings_schema": [
-    {
-      "key": "url",
-      "type": "string",
-      "label": "App URL",
-      "default": ""
-    },
-    {
-      "key": "label",
-      "type": "string",
-      "label": "Rail label",
-      "default": "App"
-    }
-  ]
+  }
 }
